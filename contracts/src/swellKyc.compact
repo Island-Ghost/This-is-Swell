@@ -1,0 +1,92 @@
+pragma language_version 0.23;
+
+import CompactStandardLibrary;
+
+export struct KycCredential {
+  userPkHash: Bytes<32>;
+  xrplAddressHash: Bytes<32>;
+  tier: Uint<8>;
+  jurisdictionCode: Uint<16>;
+  isSanctioned: Boolean;
+}
+
+export ledger kycCommitments: Map<Bytes<32>, Bytes<32>>;
+export ledger kycMembers: HistoricMerkleTree<16, Bytes<32>>;
+export ledger verifiedNullifiers: Set<Bytes<32>>;
+export ledger revokedUsers: Set<Bytes<32>>;
+export sealed ledger kycAuthority: Bytes<32>;
+
+witness authoritySecretKey(): Bytes<32>;
+witness userSecretKey(): Bytes<32>;
+witness getKycCredential(): KycCredential;
+witness getKycSalt(): Bytes<32>;
+witness getKycMerklePath(leaf: Bytes<32>): MerkleTreePath<16, Bytes<32>>;
+
+export pure circuit deriveKycPublicKey(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "swell:kyc:pk:v1"), sk]);
+}
+
+export pure circuit deriveKycNullifier(sk: Bytes<32>, contextId: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "swell:kyc:nul:v1"),
+    sk,
+    contextId
+  ]);
+}
+
+constructor() {
+  kycAuthority = disclose(deriveKycPublicKey(authoritySecretKey()));
+}
+
+export circuit issueKycCredential(userPkHash: Bytes<32>, commitment: Bytes<32>): [] {
+  const caller = deriveKycPublicKey(authoritySecretKey());
+  assert(disclose(caller == kycAuthority), "Not KYC authority");
+  assert(!revokedUsers.member(disclose(userPkHash)), "User is revoked");
+  kycCommitments.insert(disclose(userPkHash), disclose(commitment));
+  kycMembers.insert(disclose(userPkHash));
+}
+
+export circuit revokeKycUser(userPkHash: Bytes<32>): [] {
+  const caller = deriveKycPublicKey(authoritySecretKey());
+  assert(disclose(caller == kycAuthority), "Not KYC authority");
+  revokedUsers.insert(disclose(userPkHash));
+}
+
+export circuit verifySelectiveKyc(
+  minTier: Uint<8>,
+  blockedJurisdiction: Uint<16>
+): Boolean {
+  const sk = userSecretKey();
+  const pkHash = deriveKycPublicKey(sk);
+  const cred = getKycCredential();
+  const salt = getKycSalt();
+
+  assert(cred.userPkHash == pkHash, "Credential owner mismatch");
+  assert(kycCommitments.member(disclose(pkHash)), "No KYC commitment registered");
+  assert(!revokedUsers.member(disclose(pkHash)), "KYC credential revoked");
+
+  const expected = persistentCommit<KycCredential>(cred, salt);
+  const stored = kycCommitments.lookup(disclose(pkHash));
+  assert(disclose(expected == stored), "Invalid KYC credential commitment");
+
+  const passed =
+    !cred.isSanctioned &&
+    cred.tier >= minTier &&
+    cred.jurisdictionCode != blockedJurisdiction;
+
+  return disclose(passed);
+}
+
+export circuit authorizeAnonymousPayment(contextId: Bytes<32>): [] {
+  const sk = userSecretKey();
+  const leaf = deriveKycPublicKey(sk);
+  const path = getKycMerklePath(leaf);
+
+  assert(path.leaf == leaf, "Path leaf does not match caller");
+  const rootDigest = merkleTreePathRoot<16, Bytes<32>>(path);
+  assert(kycMembers.checkRoot(disclose(rootDigest)), "Not in KYC Merkle tree");
+
+  const nul = disclose(deriveKycNullifier(sk, disclose(contextId)));
+  assert(!verifiedNullifiers.member(nul), "Payment context already authorized");
+  verifiedNullifiers.insert(nul);
+}

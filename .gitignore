@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+
+# Environment & Secrets (NEVER commit wallet seeds, mnemonics, or OWS tokens)
+.env
+.env.*
+!.env.example
+**/.env
+!**/.env.example
+.mnemonic
+**/.mnemonic
+*.seed
+*.key
+
+# Midnight & m402 private state / sync caches / heavy ZK keys
+midnight-level-db/
+**/midnight-level-db/
+.midnight-state.json
+.state/
+**/.state/
+contracts/src/managed/**/keys/
+contracts/src/managed/**/zkir/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# Build outputs
+dist/
+**/dist/
+build/
+.DS_Store

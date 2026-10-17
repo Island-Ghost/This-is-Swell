@@ -1,0 +1,121 @@
+pragma language_version 0.23;
+
+import CompactStandardLibrary;
+
+witness creditCoin(serviceId: Bytes<32>, price: Uint<64>): ShieldedCoinInfo;
+witness redeemCoin(): ShieldedCoinInfo;
+witness nonceSeed(): Bytes<32>;
+witness receiptSecret(): Bytes<32>;
+
+export ledger servicePrice:    Map<Bytes<32>, Uint<64>>;
+export ledger serviceOwner:    Map<Bytes<32>, Bytes<32>>;
+export ledger receipts:        Set<Bytes<32>>;
+export ledger merchantBalance: Map<Bytes<32>, Uint<64>>;
+export ledger mintCounter:     Counter;
+
+pure circuit creditDomain(): Bytes<32> { return pad(32, "m402:credit:v1"); }
+
+export pure circuit creditColor(self: ContractAddress): Bytes<32> {
+  return tokenType(creditDomain(), self);
+}
+
+export pure circuit deriveReceipt(secret: Bytes<32>, serviceId: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>(
+    [pad(32, "m402:receipt:v1"), secret, serviceId]
+  );
+}
+
+export pure circuit deriveServiceId(
+  owner: Bytes<32>,
+  salt: Bytes<32>,
+  price: Uint<64>
+): Bytes<32> {
+  return persistentHash<Vector<4, Bytes<32>>>(
+    [pad(32, "m402:sid:v1"), owner, salt, price as Bytes<32>]
+  );
+}
+
+export circuit registerService(salt: Bytes<32>, price: Uint<64>, owner: Bytes<32>): [] {
+  assert(price > 0, "price must be positive");
+  assert(owner != pad(32, ""), "owner must be set");
+
+  const serviceId = deriveServiceId(disclose(owner), disclose(salt), disclose(price));
+  assert(!servicePrice.member(serviceId), "already registered");
+  assert(!serviceOwner.member(serviceId), "already registered");
+
+  servicePrice.insert(serviceId, disclose(price));
+  serviceOwner.insert(serviceId, disclose(owner));
+}
+
+export circuit deposit(amount: Uint<64>): [] {
+  assert(amount > 0, "amount must be positive");
+  receiveUnshielded(nativeToken(), disclose(amount) as Uint<128>);
+
+  const nonce = disclose(evolveNonce(mintCounter as Field as Uint<64>, nonceSeed()));
+  const coin = mintShieldedToken(
+    creditDomain(),
+    disclose(amount),
+    nonce,
+    right<ZswapCoinPublicKey, ContractAddress>(kernel.self())
+  );
+  sendImmediateShielded(
+    coin,
+    left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey()),
+    coin.value
+  );
+  mintCounter.increment(1);
+}
+
+export circuit pay(serviceId: Bytes<32>): [] {
+  const sid = disclose(serviceId);
+  assert(servicePrice.member(sid), "unknown service");
+  const price = servicePrice.lookup(sid);
+
+  const coin = creditCoin(sid, price);
+  assert(coin.color == tokenType(creditDomain(), kernel.self()), "not an m402 credit");
+  assert(coin.value == price as Uint<128>, "wrong amount");
+
+  const receipt = deriveReceipt(receiptSecret(), sid);
+  assert(!receipts.member(disclose(receipt)), "receipt reused");
+
+  receiveShielded(disclose(coin));
+  receipts.insert(disclose(receipt));
+
+  const owner = serviceOwner.lookup(sid);
+  const prior = merchantBalance.member(owner) ? merchantBalance.lookup(owner) : 0 as Uint<64>;
+  merchantBalance.insert(owner, (prior + price) as Uint<64>);
+}
+
+export circuit redeem(recipient: Bytes<32>): [] {
+  assert(recipient != pad(32, ""), "recipient must be set");
+
+  const coin = redeemCoin();
+  assert(coin.color == tokenType(creditDomain(), kernel.self()), "not an m402 credit");
+  assert(coin.value > 0, "nothing to redeem");
+
+  receiveShielded(disclose(coin));
+  sendUnshielded(
+    nativeToken(),
+    disclose(coin.value),
+    right<ContractAddress, UserAddress>(UserAddress { bytes: disclose(recipient) })
+  );
+}
+
+export circuit withdraw(serviceId: Bytes<32>, amount: Uint<64>): [] {
+  const sid = disclose(serviceId);
+  assert(amount > 0, "amount must be positive");
+  assert(serviceOwner.member(sid), "unknown service");
+  const owner = serviceOwner.lookup(sid);
+
+  assert(merchantBalance.member(owner), "no balance");
+  const balance = merchantBalance.lookup(owner);
+  assert(balance >= disclose(amount), "insufficient balance");
+
+  sendUnshielded(
+    nativeToken(),
+    disclose(amount) as Uint<128>,
+    right<ContractAddress, UserAddress>(UserAddress { bytes: owner })
+  );
+
+  merchantBalance.insert(owner, (balance - disclose(amount)) as Uint<64>);
+}

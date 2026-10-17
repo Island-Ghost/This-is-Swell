@@ -1,0 +1,152 @@
+// AgilityEscrow.compact
+// Upgraded from Island-Ghost/Agility-Summit for Compact 0.31.1 (pragma language_version 0.23)
+// Manages ShadowLabz DAO Crowdfunding Pools (2-week treasury raises) and conditional escrow
+// with time-locks, goal verification, treasury release, and contributor refunds.
+
+pragma language_version 0.23;
+
+import CompactStandardLibrary;
+
+export enum EscrowStatus {
+  Active,
+  Released,
+  Refunded
+}
+
+export ledger escrowCount: Counter;
+export ledger escrowGoal: Map<Bytes<32>, Uint<64>>;
+export ledger escrowRaised: Map<Bytes<32>, Uint<64>>;
+export ledger escrowDeadline: Map<Bytes<32>, Uint<64>>;
+export ledger escrowBeneficiary: Map<Bytes<32>, Bytes<32>>;
+export ledger escrowStatus: Map<Bytes<32>, EscrowStatus>;
+export ledger contributionReceipts: Set<Bytes<32>>;
+
+witness contributorSecret(): Bytes<32>;
+
+export pure circuit deriveEscrowId(
+  daoId: Bytes<32>,
+  beneficiary: Bytes<32>,
+  goalAmount: Uint<64>
+): Bytes<32> {
+  return persistentHash<Vector<4, Bytes<32>>>([
+    pad(32, "agility:escrow:v1"),
+    daoId,
+    beneficiary,
+    goalAmount as Bytes<32>
+  ]);
+}
+
+export pure circuit deriveContributionReceipt(
+  escrowId: Bytes<32>,
+  secret: Bytes<32>,
+  amount: Uint<64>
+): Bytes<32> {
+  return persistentHash<Vector<4, Bytes<32>>>([
+    pad(32, "agility:contrib:v1"),
+    escrowId,
+    secret,
+    amount as Bytes<32>
+  ]);
+}
+
+// Launch a ShadowLabz DAO crowdfunding escrow pool
+export circuit createCrowdfundingPool(
+  daoId: Bytes<32>,
+  beneficiary: Bytes<32>,
+  goalAmount: Uint<64>,
+  deadlineTimestamp: Uint<64>
+): Bytes<32> {
+  assert(goalAmount > 0, "Goal amount must be positive");
+  assert(beneficiary != pad(32, ""), "Beneficiary address required");
+
+  const eid = deriveEscrowId(disclose(daoId), disclose(beneficiary), disclose(goalAmount));
+  assert(!escrowStatus.member(eid), "Escrow pool already exists");
+
+  escrowGoal.insert(eid, disclose(goalAmount));
+  escrowRaised.insert(eid, 0 as Uint<64>);
+  escrowDeadline.insert(eid, disclose(deadlineTimestamp));
+  escrowBeneficiary.insert(eid, disclose(beneficiary));
+  escrowStatus.insert(eid, EscrowStatus.Active);
+  escrowCount.increment(1);
+
+  return eid;
+}
+
+// Contribute NIGHT into the DAO escrow pool while keeping contributor identity private via receipt commitment
+export circuit contributeToPool(
+  escrowId: Bytes<32>,
+  amount: Uint<64>
+): Bytes<32> {
+  const eid = disclose(escrowId);
+  assert(amount > 0, "Contribution must be positive");
+  assert(escrowStatus.member(eid), "Unknown escrow pool");
+  assert(escrowStatus.lookup(eid) == EscrowStatus.Active, "Escrow pool is not active");
+
+  const deadline = escrowDeadline.lookup(eid);
+  assert(blockTimeLt(deadline), "Crowdfunding pool deadline has passed");
+
+  receiveUnshielded(nativeToken(), disclose(amount) as Uint<128>);
+
+  const receipt = disclose(deriveContributionReceipt(eid, contributorSecret(), disclose(amount)));
+  assert(!contributionReceipts.member(receipt), "Contribution receipt collision");
+  contributionReceipts.insert(receipt);
+
+  const currentRaised = escrowRaised.lookup(eid);
+  escrowRaised.insert(eid, (currentRaised + disclose(amount)) as Uint<64>);
+
+  return receipt;
+}
+
+// Release raised funds to the DAO treasury once the goal is met
+export circuit releasePoolToTreasury(escrowId: Bytes<32>): [] {
+  const eid = disclose(escrowId);
+  assert(escrowStatus.member(eid), "Unknown escrow pool");
+  assert(escrowStatus.lookup(eid) == EscrowStatus.Active, "Escrow not active");
+
+  const raised = escrowRaised.lookup(eid);
+  const goal = escrowGoal.lookup(eid);
+  assert(raised >= goal, "Crowdfunding goal not yet reached");
+
+  const beneficiary = escrowBeneficiary.lookup(eid);
+  escrowStatus.insert(eid, EscrowStatus.Released);
+
+  sendUnshielded(
+    nativeToken(),
+    raised as Uint<128>,
+    right<ContractAddress, UserAddress>(UserAddress { bytes: beneficiary })
+  );
+}
+
+// Claim a refund if the deadline passed and the goal was not met, proving contribution ownership via secret
+export circuit refundContribution(
+  escrowId: Bytes<32>,
+  amount: Uint<64>,
+  refundRecipient: Bytes<32>
+): [] {
+  const eid = disclose(escrowId);
+  assert(amount > 0, "Amount must be positive");
+  assert(escrowStatus.member(eid), "Unknown escrow pool");
+
+  const status = escrowStatus.lookup(eid);
+  assert(status == EscrowStatus.Active || status == EscrowStatus.Refunded, "Escrow already released");
+
+  const deadline = escrowDeadline.lookup(eid);
+  assert(blockTimeGte(deadline), "Deadline has not passed yet");
+
+  const raised = escrowRaised.lookup(eid);
+  const goal = escrowGoal.lookup(eid);
+  assert(raised < goal, "Goal was met; cannot refund");
+
+  const receipt = disclose(deriveContributionReceipt(eid, contributorSecret(), disclose(amount)));
+  assert(contributionReceipts.member(receipt), "Invalid contribution receipt");
+  contributionReceipts.remove(receipt);
+
+  escrowStatus.insert(eid, EscrowStatus.Refunded);
+  escrowRaised.insert(eid, (raised - disclose(amount)) as Uint<64>);
+
+  sendUnshielded(
+    nativeToken(),
+    disclose(amount) as Uint<128>,
+    right<ContractAddress, UserAddress>(UserAddress { bytes: disclose(refundRecipient) })
+  );
+}

@@ -1,0 +1,64 @@
+{
+  "name": "contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist/"
+  ],
+  "exports": {
+    "./pure": {
+      "types": "./dist/pure.d.ts",
+      "import": "./dist/pure.js"
+    },
+    "./vault-contract": {
+      "types": "./dist/managed/m402Vault/contract/index.d.ts",
+      "import": "./dist/managed/m402Vault/contract/index.js"
+    },
+    "./agility-payment": {
+      "types": "./dist/managed/agilityPayment/contract/index.d.ts",
+      "import": "./dist/managed/agilityPayment/contract/index.js"
+    },
+    "./agility-escrow": {
+      "types": "./dist/managed/agilityEscrow/contract/index.d.ts",
+      "import": "./dist/managed/agilityEscrow/contract/index.js"
+    },
+    "./shadowlabz-kyc": {
+      "types": "./dist/managed/shadowLabzKyc/contract/index.d.ts",
+      "import": "./dist/managed/shadowLabzKyc/contract/index.js"
+    },
+    "./shadowlabz-subscription": {
+      "types": "./dist/managed/shadowLabzSubscription/contract/index.d.ts",
+      "import": "./dist/managed/shadowLabzSubscription/contract/index.js"
+    },
+    "./shadowlabz-reputation": {
+      "types": "./dist/managed/shadowLabzReputation/contract/index.d.ts",
+      "import": "./dist/managed/shadowLabzReputation/contract/index.js"
+    }
+  },
+  "scripts": {
+    "compile": "compact compile src/m402Vault.compact src/managed/m402Vault && compact compile src/AgilityPayment.compact src/managed/agilityPayment && compact compile src/AgilityEscrow.compact src/managed/agilityEscrow && compact compile src/ShadowLabzKyc.compact src/managed/shadowLabzKyc && compact compile src/ShadowLabzSubscription.compact src/managed/shadowLabzSubscription && compact compile src/ShadowLabzReputation.compact src/managed/shadowLabzReputation",
+    "compile:skip-zk": "compact compile --skip-zk src/m402Vault.compact src/managed/m402Vault && compact compile --skip-zk src/AgilityPayment.compact src/managed/agilityPayment && compact compile --skip-zk src/AgilityEscrow.compact src/managed/agilityEscrow && compact compile --skip-zk src/ShadowLabzKyc.compact src/managed/shadowLabzKyc && compact compile --skip-zk src/ShadowLabzSubscription.compact src/managed/shadowLabzSubscription && compact compile --skip-zk src/ShadowLabzReputation.compact src/managed/shadowLabzReputation",
+    "build": "tsc && cp -R src/managed dist/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "^0.16.0",
+    "@midnight-ntwrk/midnight-js-contracts": "4.1.1",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-network-id": "4.1.1",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-protocol": "4.1.1",
+    "@midnight-ntwrk/midnight-js-types": "4.1.1",
+    "@midnight-ntwrk/midnight-js-utils": "4.1.1",
+    "@midnight-ntwrk/wallet-sdk": "1.2.0",
+    "rxjs": "^7.8.2",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.9",
+    "typescript": "^5.6.3"
+  }
+}

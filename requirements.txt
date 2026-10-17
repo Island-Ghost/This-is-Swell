@@ -1,0 +1,8 @@
+# Python dependencies for XRPL Agentic Payments & X402 Portal (Requires Python 3.11+)
+xrpl-py
+x402-xrpl
+fastapi
+uvicorn[standard]>=0.30,<0.31
+requests
+python-dotenv
+websockets

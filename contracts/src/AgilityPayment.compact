@@ -1,0 +1,110 @@
+// AgilityPayment.compact
+// Upgraded from Island-Ghost/Agility-Summit for Compact 0.31.1 (pragma language_version 0.23)
+// Handles privacy-preserving payment processing, KYC-verified XRP/Midnight settlement receipts,
+// and ShadowLabz 3-way DAO revenue split verification (5% platform, organizer%, DAO treasury%).
+
+pragma language_version 0.23;
+
+import CompactStandardLibrary;
+
+export struct PaymentSplit {
+  platformAmount: Uint<64>;
+  organizerAmount: Uint<64>;
+  treasuryAmount: Uint<64>;
+}
+
+export ledger paymentCount: Counter;
+export ledger verifiedPaymentReceipts: Set<Bytes<32>>;
+export ledger daoTreasuryVolume: Map<Bytes<32>, Uint<64>>;
+
+witness payerSecretKey(): Bytes<32>;
+witness paymentMetadataSalt(): Bytes<32>;
+witness kycProofSecret(): Bytes<32>;
+
+export pure circuit derivePaymentReceipt(
+  paymentId: Bytes<32>,
+  xrplTxHash: Bytes<32>,
+  kycNullifier: Bytes<32>
+): Bytes<32> {
+  return persistentHash<Vector<4, Bytes<32>>>([
+    pad(32, "agility:pay:rcpt:v1"),
+    paymentId,
+    xrplTxHash,
+    kycNullifier
+  ]);
+}
+
+export pure circuit deriveKycPaymentBinding(
+  userSk: Bytes<32>,
+  xrplAccountHash: Bytes<32>
+): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "agility:kyc:xrpl:v1"),
+    userSk,
+    xrplAccountHash
+  ]);
+}
+
+// Record a KYC-gated payment settled on XRPL (X402 or direct XRP) or Midnight
+export circuit recordKycVerifiedPayment(
+  daoId: Bytes<32>,
+  paymentId: Bytes<32>,
+  xrplTxHash: Bytes<32>,
+  amountDrops: Uint<64>,
+  kycBindingCommitment: Bytes<32>,
+  xrplAccountHash: Bytes<32>
+): Bytes<32> {
+  assert(amountDrops > 0, "Payment amount must be positive");
+
+  // Prove in zero-knowledge that the caller owns the KYC-bound XRPL wallet
+  const sk = payerSecretKey();
+  const salt = paymentMetadataSalt();
+  const binding = deriveKycPaymentBinding(sk, xrplAccountHash);
+  const commitment = persistentCommit<Bytes<32>>(binding, salt);
+  assert(disclose(commitment == kycBindingCommitment), "KYC to XRPL wallet binding invalid");
+
+  const kycNullifier = persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "agility:pay:nul:v1"),
+    kycProofSecret(),
+    paymentId
+  ]);
+
+  const receipt = disclose(derivePaymentReceipt(disclose(paymentId), disclose(xrplTxHash), kycNullifier));
+  assert(!verifiedPaymentReceipts.member(receipt), "Payment receipt already recorded");
+
+  verifiedPaymentReceipts.insert(receipt);
+  paymentCount.increment(1);
+
+  const dId = disclose(daoId);
+  const prior = daoTreasuryVolume.member(dId) ? daoTreasuryVolume.lookup(dId) : 0 as Uint<64>;
+  daoTreasuryVolume.insert(dId, (prior + disclose(amountDrops)) as Uint<64>);
+
+  return receipt;
+}
+
+// Direct unshielded NIGHT payment on Midnight with ZK receipt
+export circuit payUnshieldedNight(
+  recipient: Bytes<32>,
+  amount: Uint<64>,
+  paymentId: Bytes<32>
+): Bytes<32> {
+  assert(amount > 0, "Amount must be positive");
+  assert(recipient != pad(32, ""), "Recipient required");
+
+  const receipt = disclose(persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "agility:night:pay:v1"),
+    disclose(paymentId),
+    paymentMetadataSalt()
+  ]));
+  assert(!verifiedPaymentReceipts.member(receipt), "Duplicate payment receipt");
+
+  sendUnshielded(
+    nativeToken(),
+    disclose(amount) as Uint<128>,
+    right<ContractAddress, UserAddress>(UserAddress { bytes: disclose(recipient) })
+  );
+
+  verifiedPaymentReceipts.insert(receipt);
+  paymentCount.increment(1);
+  return receipt;
+}

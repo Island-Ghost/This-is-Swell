@@ -1,0 +1,37 @@
+{
+  "name": "this-is-swell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ShadowLabz AgilityCore — XRPL Payment Portal (x402) with Midnight Network Zero-Knowledge KYC and m402 Private Payments",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": "22.x || 24.x"
+  },
+  "workspaces": [
+    "shared",
+    "contracts",
+    "gateway"
+  ],
+  "scripts": {
+    "compile": "npm run compile --workspace=contracts",
+    "compile:skip-zk": "npm run compile:skip-zk --workspace=contracts",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "dev:gateway": "npm run dev --workspace=gateway",
+    "proof-server:up": "docker compose up -d proof-server",
+    "proof-server:down": "docker compose down",
+    "proof-server:health": "curl -sf http://127.0.0.1:6300/health && echo ''"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "xrpl": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3",
+    "vitest": "^3.0.0"
+  }
+}

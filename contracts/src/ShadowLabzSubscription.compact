@@ -1,0 +1,84 @@
+// ShadowLabzSubscription.compact (Replaces KedasBrewSubscription.compact)
+// Built with Midnight Network Compact 0.31.1 (pragma language_version 0.23)
+// Manages ShadowLabz Platform Plans (Free, Starter $10, Community $50, Growth $250, Corporate)
+// and Paid DAO Membership Subscriptions with the transparent 3-way split:
+//   - 5% Platform Fee (500 bps, fixed)
+//   - 0% to 95% Organizer Fee (0..9500 bps)
+//   - Remainder (9500 - organizerBps) to DAO Treasury
+
+pragma language_version 0.23;
+
+import CompactStandardLibrary;
+
+export enum PlanTier {
+  Free,
+  Starter,
+  Community,
+  Growth,
+  Corporate
+}
+
+export ledger subscriptionCount: Counter;
+export ledger renewalCount: Counter;
+export ledger daoOrganizerFeeBps: Map<Bytes<32>, Uint<16>>;
+export ledger activeSubscriptionCommitments: Set<Bytes<32>>;
+
+witness subscriberSecret(): Bytes<32>;
+witness subscriptionSalt(): Bytes<32>;
+
+export pure circuit deriveSubscriptionId(
+  subscriberSecretKey: Bytes<32>,
+  daoOrPlanId: Bytes<32>
+): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "shadowlabz:sub:v1"),
+    subscriberSecretKey,
+    daoOrPlanId
+  ]);
+}
+
+// Configure a DAO's paid membership organizer fee in basis points (0..9500 bps; 500 bps is fixed platform fee)
+export circuit configureDaoSubscriptionSplit(
+  daoId: Bytes<32>,
+  organizerBps: Uint<16>
+): [] {
+  assert(organizerBps <= 9500, "Organizer fee cannot exceed 95% (9500 bps)");
+  daoOrganizerFeeBps.insert(disclose(daoId), disclose(organizerBps));
+}
+
+// Register a privacy-preserving subscription settled via XRP X402 or Midnight m402
+export circuit createSubscription(
+  daoOrPlanId: Bytes<32>,
+  tier: PlanTier,
+  xrplPaymentReceipt: Bytes<32>
+): Bytes<32> {
+  const subId = deriveSubscriptionId(subscriberSecret(), disclose(daoOrPlanId));
+  const commitment = persistentCommit<Vector<3, Bytes<32>>>(
+    [subId, disclose(xrplPaymentReceipt), (disclose(tier) as Field) as Bytes<32>],
+    subscriptionSalt()
+  );
+
+  assert(!activeSubscriptionCommitments.member(commitment), "Subscription commitment already exists");
+  activeSubscriptionCommitments.insert(commitment);
+  subscriptionCount.increment(1);
+
+  return commitment;
+}
+
+// Renew an existing subscription privately
+export circuit renewSubscription(
+  daoOrPlanId: Bytes<32>,
+  tier: PlanTier,
+  xrplRenewalReceipt: Bytes<32>
+): Bytes<32> {
+  const subId = deriveSubscriptionId(subscriberSecret(), disclose(daoOrPlanId));
+  const commitment = persistentCommit<Vector<3, Bytes<32>>>(
+    [subId, disclose(xrplRenewalReceipt), (disclose(tier) as Field) as Bytes<32>],
+    subscriptionSalt()
+  );
+
+  activeSubscriptionCommitments.insert(commitment);
+  renewalCount.increment(1);
+
+  return commitment;
+}

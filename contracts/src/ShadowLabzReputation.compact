@@ -1,0 +1,71 @@
+// ShadowLabzReputation.compact (Replaces KedasBrewLoyalty.compact)
+// Built with Midnight Network Compact 0.31.1 (pragma language_version 0.23)
+// Privacy-preserving DAO XP, activity levels, and alias-only leaderboard for ShadowLabz.
+// Members earn XP for casting secret ballots and creating proposals under an alias hash,
+// never exposing their wallet address.
+
+pragma language_version 0.23;
+
+import CompactStandardLibrary;
+
+export ledger activeMemberCount: Counter;
+export ledger totalXpAwarded: Counter;
+export ledger aliasXp: Map<Bytes<32>, Uint<64>>;
+export ledger claimedActionNullifiers: Set<Bytes<32>>;
+
+witness memberSecretKey(): Bytes<32>;
+
+export pure circuit deriveAliasHash(memberSk: Bytes<32>, daoId: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "shadowlabz:alias:v1"),
+    memberSk,
+    daoId
+  ]);
+}
+
+export pure circuit deriveXpActionNullifier(memberSk: Bytes<32>, actionId: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "shadowlabz:xp:nul:v1"),
+    memberSk,
+    actionId
+  ]);
+}
+
+// Register an unlinkable alias for a DAO leaderboard
+export circuit registerDaoAlias(daoId: Bytes<32>): Bytes<32> {
+  const alias = disclose(deriveAliasHash(memberSecretKey(), disclose(daoId)));
+  if (!aliasXp.member(alias)) {
+    aliasXp.insert(alias, 0 as Uint<64>);
+    activeMemberCount.increment(1);
+  }
+  return alias;
+}
+
+// Award XP for a verified governance action (vote or proposal) without revealing the wallet address
+export circuit awardGovernanceXp(
+  daoId: Bytes<32>,
+  actionId: Bytes<32>,
+  xpPoints: Uint<64>
+): Bytes<32> {
+  assert(xpPoints > 0, "XP must be positive");
+  const sk = memberSecretKey();
+  const alias = disclose(deriveAliasHash(sk, disclose(daoId)));
+  const nul = disclose(deriveXpActionNullifier(sk, disclose(actionId)));
+
+  assert(!claimedActionNullifiers.member(nul), "XP already claimed for this governance action");
+  claimedActionNullifiers.insert(nul);
+
+  const currentXp = aliasXp.member(alias) ? aliasXp.lookup(alias) : 0 as Uint<64>;
+  aliasXp.insert(alias, (currentXp + disclose(xpPoints)) as Uint<64>);
+  totalXpAwarded.increment(disclose(xpPoints) as Uint<16>);
+
+  return alias;
+}
+
+// Selective disclosure: prove the caller's XP meets a threshold for level/role perks without revealing exact XP
+export circuit proveMinimumXp(daoId: Bytes<32>, minXp: Uint<64>): Boolean {
+  const alias = disclose(deriveAliasHash(memberSecretKey(), disclose(daoId)));
+  assert(aliasXp.member(alias), "Alias not registered");
+  const currentXp = aliasXp.lookup(alias);
+  return disclose(currentXp >= minXp);
+}
