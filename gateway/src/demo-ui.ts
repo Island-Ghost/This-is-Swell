@@ -236,9 +236,12 @@ export function renderShadowLabzDemoHtml(): string {
         <span>Shadow DAOs</span>
         <span class="brand-badge">AgilityCore Execution Layer</span>
       </div>
-      <div class="status-pill" id="topStatus">
-        <span class="dot"></span>
-        <span>AgilityCore: Operational (Compact 0.31.1 · XRPL X402 · Midnight m402)</span>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <a href="/admin" style="text-decoration:none; background:#161926; border:1px solid #252a3d; color:#c4b5fd; padding:6px 12px; border-radius:8px; font-size:0.82rem; font-weight:600;">&larr; Admin Control Room</a>
+        <div class="status-pill" id="topStatus">
+          <span class="dot"></span>
+          <span>AgilityCore: Operational (Compact 0.31.1 · XRPL X402 · Midnight m402)</span>
+        </div>
       </div>
     </div>
   </header>

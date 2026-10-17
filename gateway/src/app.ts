@@ -7,6 +7,7 @@ import {
   PAYMENT_HEADER,
   KYC_PROOF_HEADER,
   usdToXrpDrops,
+  computeShadowLabzSplit,
   XRPL_X402_SHADOWLABZ_SOURCE_TAG,
 } from "@swell/shared";
 import {
@@ -24,30 +25,142 @@ import {
   formatXrplTransactionPreview,
 } from "./xrpl-service.js";
 import { renderShadowLabzDemoHtml } from "./demo-ui.js";
+import { renderShadowLabzAdminHtml } from "./admin-ui.js";
 
-const verifiedKycStore = new Map<string, VerifiedKycProof>();
+export type AdminKycRecord = VerifiedKycProof & {
+  label: string;
+  revoked: boolean;
+};
+
+export type ManagedDaoRecord = {
+  id: string;
+  name: string;
+  joinPolicy: string;
+  monthlyPriceUsd: number;
+  organizerFeePercent: number;
+  organizerXrplAddress: string;
+  treasuryXrplAddress: string;
+  treasuryAccruedDrops: bigint;
+};
+
+export type ManagedEscrowRecord = {
+  escrowId: string;
+  daoId: string;
+  beneficiaryAddress: string;
+  goalDrops: bigint;
+  raisedDrops: bigint;
+  status: "Active" | "Released" | "Refunded";
+};
+
+export type SettlementLedgerEntry = {
+  id: string;
+  timestamp: string;
+  kind: "X402 Plan" | "DAO 3-Way Split" | "m402 Private";
+  target: string;
+  payerAddress: string;
+  kycNullifier: string;
+  totalDrops: string;
+  platformDrops: string;
+  organizerDrops: string;
+  treasuryDrops: string;
+  splitSummary: string;
+};
+
+const verifiedKycStore = new Map<string, AdminKycRecord>();
 const consumedPaymentReceipts = new Set<string>();
+const managedDaos = new Map<string, ManagedDaoRecord>();
+const managedEscrows = new Map<string, ManagedEscrowRecord>();
+const settlementLedger: SettlementLedgerEntry[] = [];
+
+const adminConfig = {
+  platformXrplAddress:
+    process.env.XRPL_PAY_TO || "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+  facilitatorUrl:
+    process.env.XRPL_FACILITATOR_URL || "https://xrpl-facilitator-testnet.t54.ai",
+  sourceTag: XRPL_X402_SHADOWLABZ_SOURCE_TAG,
+  m402VaultAddress:
+    process.env.M402_VAULT_ADDRESS ||
+    "17b4cf15ad768fa0e5090da960e86eaf7cc885f86eb5a6b241e2fd28d98546ae",
+  shadowLabzKycAddress:
+    process.env.SHADOWLABZ_KYC_CONTRACT_ADDRESS ||
+    "c0ffee00112233445566778899aabbccddeeff00112233445566778899aabbcc",
+};
+
+// Seed initial demo state for the Admin Landing Page
+function seedInitialAdminState() {
+  if (managedDaos.size > 0) return;
+
+  const initialKyc = verifyMidnightKycForXrpl({
+    userSecretHexOrSeed: "nightshade-founder-initial-seed",
+    xrplAddress: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe",
+    contextId: "shadowlabz:admin:seed",
+    tier: 3,
+    jurisdictionCode: 840,
+    isSanctioned: false,
+  });
+  if (initialKyc.valid && initialKyc.proof) {
+    verifiedKycStore.set(initialKyc.proof.kycNullifierHex, {
+      ...initialKyc.proof,
+      label: "Nightshade Founder (Corporate Tier 3)",
+      revoked: false,
+    });
+  }
+
+  managedDaos.set("nightshade-collective", {
+    id: "nightshade-collective",
+    name: "Nightshade Collective",
+    joinPolicy: "zk-kyc-gated",
+    monthlyPriceUsd: 50,
+    organizerFeePercent: 20,
+    organizerXrplAddress: "rN7n7otQDd6FczFgLdSqtcsAUxDkw6fzRH",
+    treasuryXrplAddress: "rDsbeomae4FXwgQTJp9Rs64Qg9vDiTCdBv",
+    treasuryAccruedDrops: 15_000_000n,
+  });
+
+  const escrowId = deriveShadowLabzEscrowId(
+    "nightshade-collective",
+    "rDsbeomae4FXwgQTJp9Rs64Qg9vDiTCdBv",
+    1_800_000_000n,
+  );
+  managedEscrows.set(escrowId, {
+    escrowId,
+    daoId: "nightshade-collective",
+    beneficiaryAddress: "rDsbeomae4FXwgQTJp9Rs64Qg9vDiTCdBv",
+    goalDrops: 1_800_000_000n,
+    raisedDrops: 1_800_000_000n,
+    status: "Active",
+  });
+
+  if (initialKyc.proof) {
+    settlementLedger.push({
+      id: "tx-seed-1",
+      timestamp: new Date().toISOString(),
+      kind: "DAO 3-Way Split",
+      target: "nightshade-collective",
+      payerAddress: initialKyc.proof.xrplAddress,
+      kycNullifier: initialKyc.proof.kycNullifierHex,
+      totalDrops: "20000000",
+      platformDrops: "1000000",
+      organizerDrops: "4000000",
+      treasuryDrops: "15000000",
+      splitSummary: "1.0 XRP (5%) / 4.0 XRP (20%) / 15.0 XRP (75%)",
+    });
+  }
+}
+
+seedInitialAdminState();
 
 export const app = new Hono();
 
 app.use("*", cors());
 
-app.get("/", (c) => c.html(renderShadowLabzDemoHtml()));
-
-const PLATFORM_XRPL_ADDRESS =
-  process.env.XRPL_PAY_TO || "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh";
-const FACILITATOR_URL =
-  process.env.XRPL_FACILITATOR_URL || "https://xrpl-facilitator-testnet.t54.ai";
-const M402_VAULT_ADDRESS =
-  process.env.M402_VAULT_ADDRESS ||
-  "17b4cf15ad768fa0e5090da960e86eaf7cc885f86eb5a6b241e2fd28d98546ae";
-const SHADOWLABZ_KYC_ADDRESS =
-  process.env.SHADOWLABZ_KYC_CONTRACT_ADDRESS ||
-  "c0ffee00112233445566778899aabbccddeeff00112233445566778899aabbcc";
+// Primary landing page is now the Admin Control Room; /portal serves the Member Payer Demo
+app.get("/", (c) => c.html(renderShadowLabzAdminHtml()));
+app.get("/admin", (c) => c.html(renderShadowLabzAdminHtml()));
+app.get("/portal", (c) => c.html(renderShadowLabzDemoHtml()));
 
 /**
  * 1. Health & Dashboard Status Endpoint
- * Directly feeds the "Network status" & "AgilityCore execution layer" panel on https://www.shadowlabz.io/dashboard
  */
 app.get("/health", (c) => c.json({ status: "ok", service: "shadowlabz-agility-core" }));
 
@@ -61,8 +174,8 @@ app.get("/api/agility-core/status", (c) => {
       midnightSdk: "4.1.1",
       protocols: ["x402-xrpl", "m402-midnight", "midnight-zk-kyc"],
       contracts: {
-        m402Vault: M402_VAULT_ADDRESS,
-        shadowLabzKyc: SHADOWLABZ_KYC_ADDRESS,
+        m402Vault: adminConfig.m402VaultAddress,
+        shadowLabzKyc: adminConfig.shadowLabzKycAddress,
         agilityPayment: "compiled:AgilityPayment.compact",
         agilityEscrow: "compiled:AgilityEscrow.compact",
         shadowLabzSubscription: "compiled:ShadowLabzSubscription.compact",
@@ -85,7 +198,7 @@ app.get("/api/agility-core/status", (c) => {
         status: "connected",
         walletSupport: "Xaman (XUMM) + XRPL Agent Wallet (OWS)",
         rpcUrl: process.env.XRPL_RPC_URL || "https://s.altnet.rippletest.net:51234/",
-        facilitatorUrl: FACILITATOR_URL,
+        facilitatorUrl: adminConfig.facilitatorUrl,
       },
       {
         chain: "Cardano",
@@ -104,7 +217,225 @@ app.get("/api/agility-core/status", (c) => {
 });
 
 /**
- * 2. ShadowLabz Plans Endpoint (Replaces PayPal with XRP X402 + Midnight m402 + ZK KYC)
+ * 1b. Admin Control Room Endpoints
+ */
+app.get("/api/admin/overview", (c) => {
+  const kycRegistry = Array.from(verifiedKycStore.values());
+  const activeKycCount = kycRegistry.filter((k) => !k.revoked).length;
+  const revokedKycCount = kycRegistry.filter((k) => k.revoked).length;
+
+  let totalVolumeDrops = 0n;
+  let platformRevenueDrops = 0n;
+  for (const entry of settlementLedger) {
+    totalVolumeDrops += BigInt(entry.totalDrops);
+    platformRevenueDrops += BigInt(entry.platformDrops);
+  }
+
+  return c.json({
+    config: adminConfig,
+    metrics: {
+      totalVolumeDrops: totalVolumeDrops.toString(),
+      totalVolumeXrp: (Number(totalVolumeDrops) / 1_000_000).toFixed(2),
+      platformRevenueDrops: platformRevenueDrops.toString(),
+      platformRevenueXrp: (Number(platformRevenueDrops) / 1_000_000).toFixed(2),
+      activeKycCount,
+      revokedKycCount,
+    },
+    kycRegistry,
+    daos: Array.from(managedDaos.values()).map((d) => ({
+      ...d,
+      treasuryAccruedDrops: d.treasuryAccruedDrops.toString(),
+    })),
+    escrows: Array.from(managedEscrows.values()).map((e) => ({
+      ...e,
+      goalDrops: e.goalDrops.toString(),
+      raisedDrops: e.raisedDrops.toString(),
+    })),
+    settlementLedger,
+  });
+});
+
+app.post("/api/admin/kyc/issue", async (c) => {
+  const body = await c.req.json<{
+    label?: string;
+    userSecret: string;
+    xrplAddress: string;
+    tier?: number;
+    jurisdictionCode?: number;
+  }>();
+
+  const verification = verifyMidnightKycForXrpl({
+    userSecretHexOrSeed: body.userSecret,
+    xrplAddress: body.xrplAddress,
+    contextId: `shadowlabz:admin:issue:${Date.now()}`,
+    tier: body.tier ?? 2,
+    jurisdictionCode: body.jurisdictionCode ?? 840,
+    isSanctioned: false,
+    minRequiredTier: 1,
+  });
+
+  if (!verification.valid || !verification.proof) {
+    return c.json({ issued: false, error: verification.reason }, 400);
+  }
+
+  const record: AdminKycRecord = {
+    ...verification.proof,
+    label: body.label || "ShadowLabz Verified Member",
+    revoked: false,
+  };
+  verifiedKycStore.set(record.kycNullifierHex, record);
+
+  return c.json({
+    issued: true,
+    circuit: "ShadowLabzKyc.issueKycCredential",
+    merkleTreeInserted: true,
+    record,
+  });
+});
+
+app.post("/api/admin/kyc/revoke", async (c) => {
+  const body = await c.req.json<{ kycNullifier: string; revoke: boolean }>();
+  const existing = verifiedKycStore.get(body.kycNullifier);
+  if (!existing) {
+    return c.json({ error: "KYC record not found" }, 404);
+  }
+  existing.revoked = body.revoke;
+  verifiedKycStore.set(body.kycNullifier, existing);
+  return c.json({ updated: true, record: existing });
+});
+
+app.post("/api/admin/dao/create", async (c) => {
+  const body = await c.req.json<{
+    id: string;
+    name: string;
+    joinPolicy: string;
+    monthlyPriceUsd: number;
+    organizerFeePercent: number;
+    organizerXrplAddress: string;
+    treasuryXrplAddress: string;
+  }>();
+
+  const existing = managedDaos.get(body.id);
+  const record: ManagedDaoRecord = {
+    id: body.id,
+    name: body.name,
+    joinPolicy: body.joinPolicy,
+    monthlyPriceUsd: body.monthlyPriceUsd,
+    organizerFeePercent: Math.min(95, Math.max(0, body.organizerFeePercent)),
+    organizerXrplAddress: body.organizerXrplAddress,
+    treasuryXrplAddress: body.treasuryXrplAddress,
+    treasuryAccruedDrops: existing?.treasuryAccruedDrops ?? 0n,
+  };
+  managedDaos.set(record.id, record);
+
+  return c.json({
+    saved: true,
+    circuit: "ShadowLabzSubscription.configureDaoSubscriptionSplit",
+    dao: {
+      ...record,
+      treasuryAccruedDrops: record.treasuryAccruedDrops.toString(),
+    },
+  });
+});
+
+app.post("/api/admin/escrow/:escrowId/release", (c) => {
+  const escrowId = c.req.param("escrowId");
+  const escrow = managedEscrows.get(escrowId);
+  if (!escrow) {
+    return c.json({ error: "Escrow pool not found" }, 404);
+  }
+  escrow.status = "Released";
+  managedEscrows.set(escrowId, escrow);
+
+  const dao = managedDaos.get(escrow.daoId);
+  if (dao) {
+    dao.treasuryAccruedDrops += escrow.raisedDrops;
+    managedDaos.set(dao.id, dao);
+  }
+
+  return c.json({
+    released: true,
+    circuit: "AgilityEscrow.releasePoolToTreasury",
+    escrow: {
+      ...escrow,
+      goalDrops: escrow.goalDrops.toString(),
+      raisedDrops: escrow.raisedDrops.toString(),
+    },
+  });
+});
+
+app.post("/api/admin/config", async (c) => {
+  const body = await c.req.json<{
+    platformXrplAddress?: string;
+    facilitatorUrl?: string;
+    sourceTag?: number;
+  }>();
+  if (body.platformXrplAddress) adminConfig.platformXrplAddress = body.platformXrplAddress;
+  if (body.facilitatorUrl) adminConfig.facilitatorUrl = body.facilitatorUrl;
+  if (body.sourceTag) adminConfig.sourceTag = body.sourceTag;
+
+  return c.json({ updated: true, config: adminConfig });
+});
+
+app.post("/api/admin/simulate-settlement", async (c) => {
+  const body = await c.req.json<{
+    type: "plan_x402" | "dao_membership";
+    tier?: ShadowLabzPlanTier;
+    daoId?: string;
+  }>();
+
+  const firstActiveKyc = Array.from(verifiedKycStore.values()).find((k) => !k.revoked);
+  const payerAddress =
+    firstActiveKyc?.xrplAddress || "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe";
+  const kycNullifier = firstActiveKyc?.kycNullifierHex || "a".repeat(64);
+
+  if (body.type === "plan_x402") {
+    const plan = SHADOWLABZ_PLANS[body.tier || "community"];
+    const drops = usdToXrpDrops(plan.monthlyUsd);
+    const entry: SettlementLedgerEntry = {
+      id: `tx-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      kind: "X402 Plan",
+      target: `${plan.name} ($${plan.monthlyUsd}/mo)`,
+      payerAddress,
+      kycNullifier,
+      totalDrops: drops.toString(),
+      platformDrops: drops.toString(),
+      organizerDrops: "0",
+      treasuryDrops: "0",
+      splitSummary: `${(Number(drops) / 1_000_000).toFixed(2)} XRP (100% Platform X402)`,
+    };
+    settlementLedger.unshift(entry);
+    return c.json({ settled: true, entry });
+  }
+
+  const dao =
+    managedDaos.get(body.daoId || "nightshade-collective") ||
+    Array.from(managedDaos.values())[0];
+  const totalDrops = usdToXrpDrops(dao.monthlyPriceUsd);
+  const split = computeShadowLabzSplit(totalDrops, dao.organizerFeePercent * 100);
+  dao.treasuryAccruedDrops += split.treasuryDrops;
+  managedDaos.set(dao.id, dao);
+
+  const entry: SettlementLedgerEntry = {
+    id: `tx-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    kind: "DAO 3-Way Split",
+    target: dao.id,
+    payerAddress,
+    kycNullifier,
+    totalDrops: split.totalDrops.toString(),
+    platformDrops: split.platformDrops.toString(),
+    organizerDrops: split.organizerDrops.toString(),
+    treasuryDrops: split.treasuryDrops.toString(),
+    splitSummary: `${(Number(split.platformDrops) / 1_000_000).toFixed(2)} XRP (5%) / ${(Number(split.organizerDrops) / 1_000_000).toFixed(2)} XRP (${dao.organizerFeePercent}%) / ${(Number(split.treasuryDrops) / 1_000_000).toFixed(2)} XRP (${95 - dao.organizerFeePercent}%)`,
+  };
+  settlementLedger.unshift(entry);
+  return c.json({ settled: true, entry });
+});
+
+/**
+ * 2. ShadowLabz Plans Endpoint
  */
 app.get("/api/plans", (c) => {
   const xrpPriceUsd = Number(c.req.query("xrpUsd") || "2.5");
@@ -152,7 +483,11 @@ app.post("/api/kyc/verify", async (c) => {
     return c.json({ verified: false, error: verification.reason }, 403);
   }
 
-  verifiedKycStore.set(verification.proof.kycNullifierHex, verification.proof);
+  verifiedKycStore.set(verification.proof.kycNullifierHex, {
+    ...verification.proof,
+    label: "Self-Verified Portal User",
+    revoked: false,
+  });
 
   return c.json({
     verified: true,
@@ -164,9 +499,6 @@ app.post("/api/kyc/verify", async (c) => {
 
 /**
  * 4. Dual-Rail HTTP 402 Endpoint for ShadowLabz Platform Plan Subscriptions
- *    - Checks Midnight KYC proof header (`X-Midnight-Kyc`)
- *    - Returns `402 Payment Required` with both XRPL X402 and Midnight m402 requirements if `X-Payment` is absent
- *    - Settles and returns subscription commitment when `X-Payment` is provided
  */
 app.get("/api/x402/plan/:tier", (c) => {
   const tierParam = c.req.param("tier").toLowerCase() as ShadowLabzPlanTier;
@@ -197,6 +529,9 @@ app.get("/api/x402/plan/:tier", (c) => {
   }
 
   const kycProof = verifiedKycStore.get(kycNullifier)!;
+  if (kycProof.revoked) {
+    return c.json({ error: "KYC credential has been revoked by ShadowLabz Admin" }, 403);
+  }
   if (kycProof.tier < plan.minKycTier) {
     return c.json(
       {
@@ -220,14 +555,14 @@ app.get("/api/x402/plan/:tier", (c) => {
         asset: "XRP",
         priceDrops: priceDrops.toString(),
         priceUsd: plan.monthlyUsd,
-        payToAddress: PLATFORM_XRPL_ADDRESS,
-        facilitatorUrl: FACILITATOR_URL,
-        sourceTag: XRPL_X402_SHADOWLABZ_SOURCE_TAG,
+        payToAddress: adminConfig.platformXrplAddress,
+        facilitatorUrl: adminConfig.facilitatorUrl,
+        sourceTag: adminConfig.sourceTag,
       },
       midnight: {
         network: "preview",
-        vaultAddress: M402_VAULT_ADDRESS,
-        kycContractAddress: SHADOWLABZ_KYC_ADDRESS,
+        vaultAddress: adminConfig.m402VaultAddress,
+        kycContractAddress: adminConfig.shadowLabzKycAddress,
         priceStar: (plan.monthlyUsd * 50_000).toString(),
         requiresKyc: true,
         minKycTier: plan.minKycTier,
@@ -236,7 +571,7 @@ app.get("/api/x402/plan/:tier", (c) => {
 
     const unsignedXrplTx = buildKycVerifiedXrpPayment({
       account: kycProof.xrplAddress,
-      destination: PLATFORM_XRPL_ADDRESS,
+      destination: adminConfig.platformXrplAddress,
       amountDrops: priceDrops,
       kycNullifierHex: kycProof.kycNullifierHex,
       action: `subscribe_plan_${plan.tier}`,
@@ -265,6 +600,20 @@ app.get("/api/x402/plan/:tier", (c) => {
     `plan:${plan.tier}`,
   );
 
+  settlementLedger.unshift({
+    id: `tx-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    kind: "X402 Plan",
+    target: `${plan.name} ($${plan.monthlyUsd}/mo)`,
+    payerAddress: kycProof.xrplAddress,
+    kycNullifier: kycProof.kycNullifierHex,
+    totalDrops: priceDrops.toString(),
+    platformDrops: priceDrops.toString(),
+    organizerDrops: "0",
+    treasuryDrops: "0",
+    splitSummary: `${(Number(priceDrops) / 1_000_000).toFixed(2)} XRP (100% Platform X402)`,
+  });
+
   return c.json({
     status: "settled",
     tier: plan.tier,
@@ -278,10 +627,6 @@ app.get("/api/x402/plan/:tier", (c) => {
 
 /**
  * 5. ShadowLabz Paid DAO Membership Subscription Checkout (3-Way Split in XRP + Midnight KYC)
- *    Replaces the PayPal USD billing with on-chain XRP 3-way split:
- *    - 5% Platform Fee
- *    - 0%..95% Organizer Fee
- *    - Remainder (100% - 5% - organizer%) to DAO Treasury
  */
 app.post("/api/dao/:daoId/membership/checkout", async (c) => {
   const daoId = c.req.param("daoId");
@@ -297,9 +642,13 @@ app.post("/api/dao/:daoId/membership/checkout", async (c) => {
   }
 
   const kycProof = verifiedKycStore.get(kycNullifier)!;
+  if (kycProof.revoked) {
+    return c.json({ error: "KYC credential has been revoked by ShadowLabz Admin" }, 403);
+  }
+
   const body = await c.req.json<{
     monthlyPriceUsd: number;
-    organizerFeePercent: number; // 0 to 95
+    organizerFeePercent: number;
     organizerXrplAddress: string;
     daoTreasuryXrplAddress: string;
   }>();
@@ -309,13 +658,27 @@ app.post("/api/dao/:daoId/membership/checkout", async (c) => {
 
   const { split, transactions } = buildDaoMembershipSplitPayments({
     subscriberAccount: kycProof.xrplAddress,
-    platformAddress: PLATFORM_XRPL_ADDRESS,
+    platformAddress: adminConfig.platformXrplAddress,
     organizerAddress: body.organizerXrplAddress,
     treasuryAddress: body.daoTreasuryXrplAddress,
     totalDrops,
     organizerFeeBps,
     daoId,
     kycNullifierHex: kycProof.kycNullifierHex,
+  });
+
+  settlementLedger.unshift({
+    id: `tx-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    kind: "DAO 3-Way Split",
+    target: daoId,
+    payerAddress: kycProof.xrplAddress,
+    kycNullifier: kycProof.kycNullifierHex,
+    totalDrops: split.totalDrops.toString(),
+    platformDrops: split.platformDrops.toString(),
+    organizerDrops: split.organizerDrops.toString(),
+    treasuryDrops: split.treasuryDrops.toString(),
+    splitSummary: `${(Number(split.platformDrops) / 1_000_000).toFixed(2)} XRP (5%) / ${(Number(split.organizerDrops) / 1_000_000).toFixed(2)} XRP (${body.organizerFeePercent}%) / ${(Number(split.treasuryDrops) / 1_000_000).toFixed(2)} XRP (${95 - body.organizerFeePercent}%)`,
   });
 
   return c.json({
@@ -337,7 +700,7 @@ app.post("/api/dao/:daoId/membership/checkout", async (c) => {
 });
 
 /**
- * 6. ShadowLabz DAO 2-Week Crowdfunding Escrow (AgilityEscrow on Midnight + EscrowCreate on XRPL)
+ * 6. ShadowLabz DAO 2-Week Crowdfunding Escrow
  */
 app.post("/api/dao/:daoId/crowdfund/escrow", async (c) => {
   const daoId = c.req.param("daoId");
@@ -364,6 +727,16 @@ app.post("/api/dao/:daoId/crowdfund/escrow", async (c) => {
     goalDrops,
   );
 
+  const existingPool = managedEscrows.get(midnightEscrowId);
+  managedEscrows.set(midnightEscrowId, {
+    escrowId: midnightEscrowId,
+    daoId,
+    beneficiaryAddress: body.daoTreasuryXrplAddress,
+    goalDrops,
+    raisedDrops: (existingPool?.raisedDrops ?? 0n) + contributionDrops,
+    status: existingPool?.status ?? "Active",
+  });
+
   const xrplEscrowTx = buildDaoCrowdfundingEscrow({
     contributorAccount: kycProof.xrplAddress,
     daoTreasuryAddress: body.daoTreasuryXrplAddress,
@@ -382,7 +755,7 @@ app.post("/api/dao/:daoId/crowdfund/escrow", async (c) => {
 });
 
 /**
- * 7. ShadowLabz Privacy-Preserving Reputation / XP (Replaces KedasBrewLoyalty)
+ * 7. ShadowLabz Privacy-Preserving Reputation / XP
  */
 app.post("/api/dao/:daoId/reputation/xp", async (c) => {
   const daoId = c.req.param("daoId");

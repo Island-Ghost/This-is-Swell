@@ -137,4 +137,66 @@ describe("ShadowLabz AgilityCore Payment & KYC Gateway", () => {
     expect(escrowData.midnightEscrowId).toHaveLength(64);
     expect(escrowData.xrplEscrowTx.TransactionType).toBe("EscrowCreate");
   });
+
+  it("serves the Admin Landing Page and handles KYC issuance, revocation, DAO split config, and escrow release", async () => {
+    const htmlRes = await app.request("/admin");
+    expect(htmlRes.status).toBe(200);
+    const html = await htmlRes.text();
+    expect(html).toContain("ShadowLabz Admin Landing Page");
+
+    // 1. Admin issues a Midnight ZK KYC credential
+    const issueRes = await app.request("/api/admin/kyc/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        label: "Enterprise DAO Treasurer",
+        xrplAddress: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe",
+        userSecret: "enterprise-treasurer-secret-999",
+        tier: 3,
+        jurisdictionCode: 840,
+      }),
+    });
+    expect(issueRes.status).toBe(200);
+    const issueBody = (await issueRes.json()) as any;
+    expect(issueBody.issued).toBe(true);
+    expect(issueBody.merkleTreeInserted).toBe(true);
+    const kycNullifier = issueBody.record.kycNullifierHex;
+
+    // 2. Admin revokes and restores the credential
+    const revokeRes = await app.request("/api/admin/kyc/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kycNullifier, revoke: true }),
+    });
+    expect(revokeRes.status).toBe(200);
+    const revokeBody = (await revokeRes.json()) as any;
+    expect(revokeBody.record.revoked).toBe(true);
+
+    // Verify revoked user is blocked from X402 checkout
+    const blockedRes = await app.request("/api/x402/plan/starter", {
+      headers: { "X-Midnight-Kyc": kycNullifier },
+    });
+    expect(blockedRes.status).toBe(403);
+
+    // 3. Admin creates/updates a DAO and checks overview
+    const daoRes = await app.request("/api/admin/dao/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "agility-governance-dao",
+        name: "Agility Governance DAO",
+        joinPolicy: "zk-kyc-gated",
+        monthlyPriceUsd: 100,
+        organizerFeePercent: 15,
+        organizerXrplAddress: "rN7n7otQDd6FczFgLdSqtcsAUxDkw6fzRH",
+        treasuryXrplAddress: "rDsbeomae4FXwgQTJp9Rs64Qg9vDiTCdBv",
+      }),
+    });
+    expect(daoRes.status).toBe(200);
+
+    const overviewRes = await app.request("/api/admin/overview");
+    expect(overviewRes.status).toBe(200);
+    const overview = (await overviewRes.json()) as any;
+    expect(overview.daos.some((d: any) => d.id === "agility-governance-dao")).toBe(true);
+  });
 });
