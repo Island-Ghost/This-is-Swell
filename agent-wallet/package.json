@@ -1,0 +1,23 @@
+{
+  "name": "@swell/agent-wallet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Policy-guarded XRPL wallet runtime for AI agents: signing ceremony, spending policy, SQLite audit trail, x402 payer",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@swell/shared": "*",
+    "xrpl": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "typescript": "^5.6.3",
+    "vitest": "^3.0.0"
+  }
+}

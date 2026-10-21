@@ -1,59 +1,67 @@
 """
-ShadowLabz Autonomous Payer Agent (x402-xrpl + Midnight ZK KYC Header)
+Swell Autonomous Payer Agent (Python)
 
-Demonstrates how a ShadowLabz user or AI agent:
-1. Attaches their Midnight ZK KYC nullifier proof in `X-Midnight-Kyc`
-2. Calls an X402-protected ShadowLabz endpoint
-3. Automatically detects the 402 Payment Required response, signs and submits the
-   XRP payment on-chain via `x402_requests`, and retries with the facilitator receipt.
+Pays for an HTTP 402 resource on the Swell gateway using the same spending policy
+(`agent-policy.json`) and audit database (`.state/agent-wallet.sqlite`) as the TypeScript CLI and
+MCP server. Payment proof is the validated XRPL tx hash sent back in `X-Payment`.
+
+    .venv/bin/python xrpl_x402/shadowlabz_payer_agent.py http://127.0.0.1:8787/api/x402/plan/starter
+
+Interactive by default (previews each signature and asks). Pass --yes for autonomous mode, where only
+policy-allowed payments are signed and anything else comes back as needs_approval.
+
+For a T54 `x402-xrpl` merchant (shadowlabz_merchant.py), use the `x402_requests` session from the
+x402-xrpl package instead — that protocol carries a presigned payload rather than a tx hash.
 """
 
+from __future__ import annotations
+
+import argparse
 import json
 import os
+import sys
+from dataclasses import asdict
+
 from dotenv import load_dotenv
-from xrpl.wallet import Wallet
-from x402_xrpl.clients import x402_requests, decode_payment_response
+
+sys.path.insert(0, os.path.dirname(__file__))
+from swell_agent import AgentWallet, pay_for_resource  # noqa: E402
 
 load_dotenv()
 
 
-def pay_and_launch_dao(
-    buyer_seed: str,
-    kyc_nullifier_hex: str,
-    resource_url: str = "http://127.0.0.1:8000/api/x402/dao/launch",
-    rpc_url: str = "https://s.altnet.rippletest.net:51234/",
-) -> dict:
-    buyer = Wallet.from_seed(buyer_seed)
-    session = x402_requests(
-        buyer,
-        rpc_url=rpc_url,
-        network_filter=None,
-        scheme_filter="exact",
-    )
-    session.headers.update({"X-Midnight-Kyc": kyc_nullifier_hex})
+def ask_human(preview: str, decision) -> bool:
+    print(preview)
+    if decision.reasons:
+        print("⚠ Outside policy: " + "; ".join(decision.reasons))
+    return input("Sign and submit? (yes / no) ").strip().lower() in ("y", "yes")
 
-    response = session.get(resource_url, timeout=180)
-    settlement = None
-    payment_response = response.headers.get("PAYMENT-RESPONSE")
-    if payment_response:
-        settlement = decode_payment_response(payment_response)
 
-    return {
-        "status_code": response.status_code,
-        "body": response.json(),
-        "settlement": settlement,
-    }
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Swell autonomous 402 payer")
+    ap.add_argument("url", nargs="?", default=os.getenv("RESOURCE_URL", "http://127.0.0.1:8787/api/x402/plan/starter"))
+    ap.add_argument("--yes", action="store_true", help="autonomous mode (policy-allowed only, no prompt)")
+    ap.add_argument("--max-xrp", type=float, help="hard ceiling for this call")
+    ap.add_argument("--header", action="append", default=[], help="extra header K=V (e.g. X-Midnight-Kyc=...)")
+    ap.add_argument("--seed-env", default="XRPL_SEED", help="env var holding the seed (XRPL_SEED or XRPL_BUYER_SEED)")
+    args = ap.parse_args()
+
+    headers = dict(h.split("=", 1) for h in args.header)
+    kyc = os.getenv("MIDNIGHT_KYC_NULLIFIER")
+    if kyc and "X-Midnight-Kyc" not in headers:
+        headers["X-Midnight-Kyc"] = kyc
+
+    wallet = AgentWallet(seed_env=args.seed_env, source="py-cli", confirm=None if args.yes else ask_human)
+    result = pay_for_resource(wallet, args.url, headers=headers,
+                              max_price_drops=int(args.max_xrp * 1_000_000) if args.max_xrp else None)
+
+    out = asdict(result)
+    if result.payment:
+        out["payment"] = {"status": result.payment.status, "hash": result.payment.hash, "result_code": result.payment.result_code,
+                          "reasons": result.payment.decision.reasons, "intent_id": result.payment.intent_id}
+    print(json.dumps(out, indent=2, default=str))
+    return 0 if result.status in ("ok", "no_payment_required") else 1
 
 
 if __name__ == "__main__":
-    seed = os.getenv("XRPL_BUYER_SEED")
-    kyc_nul = os.getenv("MIDNIGHT_KYC_NULLIFIER", "a" * 64)
-    if not seed:
-        raise RuntimeError("Set XRPL_BUYER_SEED in .env before running payer agent.")
-    result = pay_and_launch_dao(
-        buyer_seed=seed,
-        kyc_nullifier_hex=kyc_nul,
-        resource_url=os.getenv("RESOURCE_URL", "http://127.0.0.1:8000/api/x402/dao/launch"),
-        rpc_url=os.getenv("XRPL_RPC_URL", "https://s.altnet.rippletest.net:51234/"),
-    )
-    print(json.dumps(result, indent=2))
+    sys.exit(main())

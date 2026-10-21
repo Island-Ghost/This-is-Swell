@@ -482,12 +482,14 @@ export function renderShadowLabzDemoHtml(): string {
         await runKycVerify();
       }
       const tier = document.getElementById('planTier').value;
-      const randomSecret = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-        .map(b => b.toString(16).padStart(2, '0')).join('');
+      // Payment proof is the hash of a validated XRPL Payment to the platform address
+      // (e.g. from: swell pay-for http://127.0.0.1:8787/api/x402/plan/<tier>).
+      const txHash = (prompt('Paste the validated XRPL Payment tx hash for this plan (or leave blank for m402-mock mode)') || Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(b => b.toString(16).padStart(2, '0')).join('')).trim();
       const res = await fetch('/api/x402/plan/' + tier, {
         headers: {
           'X-Midnight-Kyc': currentKycToken,
-          'X-Payment': randomSecret
+          'X-Payment': txHash
         }
       });
       const data = await res.json();
