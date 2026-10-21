@@ -11,7 +11,10 @@
   "workspaces": [
     "shared",
     "contracts",
-    "gateway"
+    "agent-wallet",
+    "gateway",
+    "mcp-server",
+    "cli"
   ],
   "scripts": {
     "compile": "npm run compile --workspace=contracts",
@@ -20,6 +23,10 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "dev:gateway": "npm run dev --workspace=gateway",
+    "dev:mcp": "npm run start --workspace=mcp-server",
+    "swell": "tsx cli/src/index.ts",
+    "wallet:create": "tsx scripts/create-agent-wallet.ts",
+    "test:testnet": "XRPL_TESTNET_LIVE=1 vitest run agent-wallet/src/testnet.integration.test.ts",
     "proof-server:up": "docker compose up -d proof-server",
     "proof-server:down": "docker compose down",
     "proof-server:health": "curl -sf http://127.0.0.1:6300/health && echo ''"

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "swell-xrpl-agent-wallet": {
+      "command": "npx",
+      "args": ["tsx", "mcp-server/src/index.ts"],
+      "env": {
+        "AGENT_POLICY_PATH": "agent-policy.json",
+        "AGENT_DB_PATH": ".state/agent-wallet.sqlite"
+      }
+    }
+  }
+}

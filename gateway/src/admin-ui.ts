@@ -743,8 +743,18 @@ export function renderShadowLabzAdminHtml(): string {
       document.getElementById('discordCmd').value = '/setup project_id:' + slug;
     }
 
+    // Admin API is bearer-token protected. Token comes from ?token= (stored for the session) or a prompt.
+    const adminToken = new URLSearchParams(location.search).get('token') || sessionStorage.getItem('swellAdminToken') || prompt('Enter ADMIN_API_TOKEN (printed by the gateway on startup)') || '';
+    sessionStorage.setItem('swellAdminToken', adminToken);
+    async function adminFetch(url, init) {
+      const headers = Object.assign({}, (init && init.headers) || {}, { Authorization: 'Bearer ' + adminToken });
+      const res = await fetch(url, Object.assign({}, init, { headers }));
+      if (res.status === 401 || res.status === 503) { sessionStorage.removeItem('swellAdminToken'); alert('Admin API: ' + (await res.json()).error); }
+      return res;
+    }
+
     async function loadAdminOverview() {
-      const res = await fetch('/api/admin/overview');
+      const res = await adminFetch('/api/admin/overview');
       const data = await res.json();
 
       document.getElementById('adminXrplAddr').textContent = data.config.platformXrplAddress;
@@ -847,7 +857,7 @@ export function renderShadowLabzAdminHtml(): string {
       const tier = Number(document.getElementById('issueTier').value);
       const jurisdictionCode = Number(document.getElementById('issueJurisdiction').value);
 
-      const res = await fetch('/api/admin/kyc/issue', {
+      const res = await adminFetch('/api/admin/kyc/issue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label, xrplAddress, userSecret, tier, jurisdictionCode })
@@ -858,7 +868,7 @@ export function renderShadowLabzAdminHtml(): string {
     }
 
     async function adminToggleRevoke(kycNullifier, revoke) {
-      await fetch('/api/admin/kyc/revoke', {
+      await adminFetch('/api/admin/kyc/revoke', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kycNullifier, revoke })
@@ -875,7 +885,7 @@ export function renderShadowLabzAdminHtml(): string {
       const organizerXrplAddress = document.getElementById('daoOrgWallet').value;
       const treasuryXrplAddress = document.getElementById('daoTreasuryWallet').value;
 
-      await fetch('/api/admin/dao/create', {
+      await adminFetch('/api/admin/dao/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -888,7 +898,7 @@ export function renderShadowLabzAdminHtml(): string {
     async function adminSimulateDaoSubscription() {
       await adminSaveDao();
       const daoId = document.getElementById('daoSlug').value;
-      await fetch('/api/admin/simulate-settlement', {
+      await adminFetch('/api/admin/simulate-settlement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'dao_membership', daoId })
@@ -897,7 +907,7 @@ export function renderShadowLabzAdminHtml(): string {
     }
 
     async function simulateQuickX402Settlement() {
-      await fetch('/api/admin/simulate-settlement', {
+      await adminFetch('/api/admin/simulate-settlement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'plan_x402', tier: 'community' })
@@ -906,7 +916,7 @@ export function renderShadowLabzAdminHtml(): string {
     }
 
     async function adminReleaseEscrow(escrowId) {
-      await fetch('/api/admin/escrow/' + escrowId + '/release', { method: 'POST' });
+      await adminFetch('/api/admin/escrow/' + escrowId + '/release', { method: 'POST' });
       await loadAdminOverview();
     }
 
@@ -914,7 +924,7 @@ export function renderShadowLabzAdminHtml(): string {
       const platformXrplAddress = document.getElementById('cfgPlatformWallet').value;
       const facilitatorUrl = document.getElementById('cfgFacilitator').value;
       const sourceTag = Number(document.getElementById('cfgSourceTag').value);
-      const res = await fetch('/api/admin/config', {
+      const res = await adminFetch('/api/admin/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ platformXrplAddress, facilitatorUrl, sourceTag })

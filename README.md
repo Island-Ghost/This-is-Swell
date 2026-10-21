@@ -4,6 +4,42 @@
 
 ---
 
+## For AI Agents: Autonomous, Policy-Guarded Money on XRPL
+
+> *Track: build the tools that let AI agents make payments and manage money on the XRP Ledger — autonomously, safely, and at machine speed.*
+
+Swell gives an agent a wallet it can actually be trusted with. Every transaction, from any entry point, goes through the same six-step ceremony — **receive → load key → autofill → preview → policy → sign → `submitAndWait`** — with a spending policy the operator controls and an audit trail that survives crashes.
+
+| Entry point | For whom | What it does |
+| :-- | :-- | :-- |
+| **MCP server** `mcp-server/` | LLM agents (Devin, Claude, Cursor…) | 10 tools: `xrpl_get_account`, `xrpl_quote_payment`, `xrpl_send_payment`, `xrpl_pay_for_resource`, `xrpl_create_escrow`, `xrpl_finish_escrow`, `xrpl_split_payment`, `xrpl_policy_status`, `xrpl_audit_log`, `xrpl_reconcile`. Autonomous mode: only policy-allowed txs are signed; anything else returns `needs_approval` with the preview. |
+| **CLI** `swell` | The human supervising the agent | `wallet status`, `quote`, `pay`, `pay-for <url>`, `escrow`, `policy show/set`, `audit`, `reconcile`. Interactive by default (previews and asks); `--yes` for policy-only autonomy. |
+| **x402 payer** | Agents buying HTTP 402 resources | GET → 402 challenge → policy check (price, destination, network all treated as untrusted) → pay → retry with the validated tx hash as `X-Payment`. TypeScript and Python (`xrpl_x402/swell_agent/`), sharing one policy file and one audit DB. |
+| **Verifying gateway** `gateway/` | Merchants / APIs selling to agents | Issues 402 challenges and accepts **only a validated XRPL tx hash** as proof: checks `validated`, `tesSUCCESS`, destination, `meta.delivered_amount`, optional `SourceTag`; SQLite replay guard; bearer-protected admin API. |
+
+**Safety model (`agent-policy.json`)** — per-tx cap, 24h cap, tx/hour rate limit, allowed tx types and assets (XRP, RLUSD), optional destination allowlist, expiry. Hard violations (wrong network, expired policy, disallowed type/asset/destination) are *denied* even if a human says yes; soft caps *escalate* to a human. The seed never leaves the process and never enters chat or logs (`EnvSeedSigner` for dev; `ExternalSigner` interface for HSM/KMS/OWS in production). The tx hash is persisted **before** submission so a crash is reconciled from the ledger, never blindly resubmitted.
+
+```bash
+npm install && nvm use 24
+npm run wallet:create                    # testnet wallet → seed written to .env, only the address is printed, faucet-funded
+npm run swell -- wallet status           # balance, reserve, spendable, policy headroom
+npm run swell -- quote rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe 1     # dry run: autofill + simulate + policy verdict
+npm run swell -- pay   rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe 1 --memo "hello"   # previews, asks, signs, submitAndWait
+
+# Sell to agents: start the verifying 402 gateway, then let the agent buy a plan autonomously
+XRPL_PAY_TO=<your r-address> ADMIN_API_TOKEN=secret npm run dev:gateway
+npm run swell -- pay-for http://127.0.0.1:8787/api/x402/plan/starter --yes
+.venv/bin/python xrpl_x402/shadowlabz_payer_agent.py http://127.0.0.1:8787/api/x402/plan/starter --yes   # same thing from Python
+
+npm run dev:mcp                          # stdio MCP server (also registered in .devin/mcp_config.json)
+npm test                                 # 35 unit tests (mocked ledger)
+npm run test:testnet                     # live testnet: real payment, delivered_amount check, crash → reconcile
+```
+
+Policy and audit state live in `agent-policy.json` and `.state/agent-wallet.sqlite` (gitignored); Midnight ZK-KYC is an optional gate on the gateway (`REQUIRE_MIDNIGHT_KYC=true`).
+
+---
+
 ## Introduction & How This All Came Into Place
 
 Conceived in **2022** during **Ripple's inaugural "Real-Life Use Cases" Hackathon**, **Agility** initially focused on enabling businesses and communities to accept **XRP Ledger (XRPL)** tokens as seamless payments — similar to PayPal for business and e-commerce stores, but settling on-chain in seconds. The team built a working prototype application, and with the help of the **XRdoge** decentralized community (founders' bags burned), even created a companion hardware device for point-of-sale and physical payment interactions.
@@ -72,15 +108,29 @@ This-is-Swell/
 │   ├── src/m402Vault.compact           # Pooled NIGHT -> 1:1 shielded credit 402 vault
 │   ├── src/pure.ts                     # Fast off-chain pureCircuits & ledger exports
 │   └── src/managed/                    # Compiled JS/TS contract bindings
-├── gateway/                            # TypeScript AgilityCore Execution Layer & Demo UI (Hono)
-│   ├── src/app.ts                      # REST + HTTP 402 endpoints for shadowlabz.io
-│   ├── src/demo-ui.ts                  # Interactive ShadowLabz Control Room UI (GET /)
-│   ├── src/kyc-verifier.ts             # Midnight ZK KYC & nullifier verification service
-│   ├── src/xrpl-service.ts             # XRPL Payment, 3-way split, and EscrowCreate builder
-│   └── src/app.test.ts                 # End-to-end Vitest integration suite
-├── xrpl_x402/                          # Python 3.12 x402-xrpl Merchant & Payer Agent
-│   ├── shadowlabz_merchant.py          # FastAPI server with T54 require_payment + ZK KYC check
-│   └── shadowlabz_payer_agent.py       # Autonomous x402_requests payer agent
+├── agent-wallet/                       # @swell/agent-wallet — the policy-guarded XRPL wallet runtime for agents
+│   ├── src/policy.ts                   # SpendingPolicy: per-tx / 24h caps, rate limit, allowlists, expiry; hard vs soft
+│   ├── src/ceremony.ts                 # 6-step signing ceremony; hash persisted before submitAndWait; reconcile
+│   ├── src/signer.ts                   # EnvSeedSigner (dev) / ExternalSigner (HSM, KMS, OWS); secret redaction
+│   ├── src/store.ts                    # node:sqlite audit trail of tx intents + spend windows
+│   ├── src/x402-payer.ts               # Autonomous 402 loop: challenge → policy → pay → retry with tx hash
+│   ├── src/builders.ts, preview.ts     # Unsigned XRP/RLUSD/TrustSet/Escrow/split builders; human preview
+│   └── src/*.test.ts                   # 23 unit tests (mocked ledger) + gated live testnet suite
+├── mcp-server/                         # MCP (stdio) server exposing the wallet as 10 tools for LLM agents
+├── cli/                                # `swell` CLI for the supervising human (pay, pay-for, escrow, policy, audit)
+├── scripts/create-agent-wallet.ts      # Wallet bootstrap per xrpl-agent-wallet skill (seed → .env, faucet funding)
+├── agent-policy.json                   # The agent's spending policy (shared by TS and Python)
+├── gateway/                            # Verifying HTTP 402 gateway + ShadowLabz Admin / Portal UI (Hono)
+│   ├── src/app.ts                      # createApp(): 402 challenges, ledger-verified settlement, admin API
+│   ├── src/payment-verifier.ts         # X-Payment tx hash → validated / tesSUCCESS / destination / delivered_amount
+│   ├── src/store.ts                    # SQLite persistence (KYC, DAOs, escrows, settlements, replay guard)
+│   ├── src/kyc-verifier.ts             # Midnight ZK KYC nullifier derivation (optional gate)
+│   ├── src/xrpl-service.ts             # ShadowLabz wrappers over @swell/agent-wallet builders
+│   └── src/app.test.ts                 # 12 gateway tests
+├── xrpl_x402/                          # Python 3.12 counterpart
+│   ├── swell_agent/                    # policy.py / store.py / wallet.py / payer.py — same policy file & audit DB as TS
+│   ├── shadowlabz_payer_agent.py       # Autonomous Python 402 payer against the Swell gateway
+│   └── shadowlabz_merchant.py          # FastAPI server with T54 x402-xrpl require_payment + ZK KYC check
 ├── shared/                             # Shared TypeScript types, plans, & 3-way split math
 ├── docs/                               # Deep-dive references for Midnight, XRPL X402, & m402
 ├── ABOUT.md                            # Complete project history, vision, and roadmap
@@ -113,9 +163,13 @@ npm run build
 npm run typecheck
 npm test
 
-# 4. Launch the interactive ShadowLabz + AgilityCore Live Demo UI
-npm run dev:gateway
-# Open http://127.0.0.1:8787 in your browser
+# 4. Create the agent's testnet wallet (seed → .env, never printed) and launch the verifying 402 gateway
+npm run wallet:create
+ADMIN_API_TOKEN=secret npm run dev:gateway
+# Open http://127.0.0.1:8787/admin?token=secret (Admin Control Room) or /portal (member payer demo)
+
+# 5. Let an agent buy a plan: 402 → policy → XRPL payment → ledger-verified → settled
+npm run swell -- pay-for http://127.0.0.1:8787/api/x402/plan/starter --yes
 ```
 
 ---
