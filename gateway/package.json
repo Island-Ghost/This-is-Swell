@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agility/sdk": "*",
     "@hono/node-server": "^1.13.7",
     "@swell/shared": "*",
     "contracts": "*",

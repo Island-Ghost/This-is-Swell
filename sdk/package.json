@@ -1,0 +1,29 @@
+{
+  "name": "@agility/sdk",
+  "version": "0.1.0",
+  "description": "AgilityCore SDK — Privacy-Preserving Zero-Knowledge KYC (Midnight Network) + Deterministic XRP & RLUSD Agentic Settlement (XRPL X402 & m402)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "files": [
+    "dist/"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@swell/shared": "*",
+    "contracts": "*",
+    "xrpl": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "typescript": "^5.6.3"
+  }
+}

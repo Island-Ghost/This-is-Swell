@@ -26,6 +26,7 @@ import {
 } from "./xrpl-service.js";
 import { renderShadowLabzDemoHtml } from "./demo-ui.js";
 import { renderShadowLabzAdminHtml } from "./admin-ui.js";
+import { AgilitySDK } from "@agility/sdk";
 
 export type AdminKycRecord = VerifiedKycProof & {
   label: string;
@@ -771,5 +772,94 @@ app.post("/api/dao/:daoId/reputation/xp", async (c) => {
     aliasHash: ids.aliasHashHex,
     actionNullifier: ids.actionNullifierHex,
     xpAwarded: body.xpPoints,
+  });
+});
+
+/**
+ * 8. `@agility/sdk` Interactive Playground Endpoint (Mastercard @ Ripple Swell Live Demo)
+ */
+app.post("/api/sdk/playground", async (c) => {
+  const body = await c.req.json<{
+    kycAuthorityId?: string;
+    payerXrplAddress: string;
+    userSecret: string;
+    tier: number;
+    jurisdictionCode: number;
+    isSanctioned: boolean;
+    amountUsd: number;
+    asset: "RLUSD" | "XRP";
+    acquirerFeePercent?: number;
+  }>();
+
+  const sdk = new AgilitySDK({
+    xrplNetwork: "xrpl:1",
+    merchantXrplAddress: adminConfig.platformXrplAddress,
+    kycAuthorityId: body.kycAuthorityId || "mastercard-crypto-credential",
+    defaultAsset: body.asset || "RLUSD",
+    sourceTag: adminConfig.sourceTag,
+  });
+
+  const attestation = sdk.kyc.proveCompliance(
+    {
+      userSecret: body.userSecret,
+      xrplAddress: body.payerXrplAddress,
+      contextId: `swell-demo-${Date.now()}`,
+      tier: body.tier,
+      jurisdictionCode: body.jurisdictionCode,
+      isSanctioned: body.isSanctioned,
+      issuerLabel: body.kycAuthorityId || "mastercard-crypto-credential",
+    },
+    { minKycTier: 2, blockedJurisdictions: [408, 364, 760] },
+  );
+
+  if (!attestation.compliant || !attestation.kycNullifierHex) {
+    return c.json(
+      {
+        status: "blocked_by_zk_compliance",
+        sdkModule: "agility.kyc.proveCompliance()",
+        attestation,
+      },
+      403,
+    );
+  }
+
+  const paymentRequired = sdk.x402.buildPaymentRequired({
+    serviceId: "swell-enterprise-settlement",
+    description: "Mastercard Crypto Credential + XRPL X402 Compliant Settlement",
+    amountUsd: body.amountUsd,
+    asset: body.asset,
+    minKycTier: 2,
+  });
+
+  const tx = sdk.settlement.buildCompliantPaymentTx({
+    payerXrplAddress: body.payerXrplAddress,
+    amountUsd: body.amountUsd,
+    asset: body.asset,
+    kycNullifierHex: attestation.kycNullifierHex,
+    action: "mastercard_swell_x402_settlement",
+  });
+
+  const totalDrops = usdToXrpDrops(body.amountUsd);
+  const split = sdk.settlement.computeSplit(
+    totalDrops,
+    Math.round((body.acquirerFeePercent ?? 2) * 100),
+  );
+
+  return c.json({
+    status: "ready_for_settlement",
+    sdkModulesUsed: ["agility.kyc", "agility.x402", "agility.settlement"],
+    attestation,
+    paymentRequired,
+    unsignedXrplTx: tx,
+    walletCeremonyPreview: formatXrplTransactionPreview(tx, "testnet"),
+    split: {
+      totalDrops: split.totalDrops.toString(),
+      networkFeeBps: split.platformFeeBps,
+      acquirerFeeBps: split.organizerFeeBps,
+      merchantShareBps: split.treasuryShareBps,
+      networkDrops: split.platformDrops.toString(),
+      acquirerDrops: split.organizerDrops.toString(),
+      merchantDrops: split.treasuryDrops.toString(),
+    },
   });
 });

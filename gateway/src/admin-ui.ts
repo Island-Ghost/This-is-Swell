@@ -352,6 +352,7 @@ export function renderShadowLabzAdminHtml(): string {
       </div>
       <div class="nav-links">
         <button class="tab-btn active" onclick="switchTab('all', this)">All Controls</button>
+        <button class="tab-btn" onclick="switchTab('sdk', this)">@agility/sdk · Mastercard Swell Demo</button>
         <button class="tab-btn" onclick="switchTab('kyc', this)">Midnight ZK KYC Authority</button>
         <button class="tab-btn" onclick="switchTab('daos', this)">DAOs, Splits &amp; Escrows</button>
         <button class="tab-btn" onclick="switchTab('ledger', this)">X402 Revenue Ledger</button>
@@ -710,13 +711,103 @@ export function renderShadowLabzAdminHtml(): string {
         </section>
       </div>
     </div>
+
+    <!-- SECTION: @agility/sdk MASTERCARD @ RIPPLE SWELL LIVE PLAYGROUND -->
+    <div id="sec-sdk" class="section-view">
+      <div class="grid-2">
+        <section class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <span class="tag emerald">@agility/sdk · Ripple Swell Pitch</span>
+              Mastercard Crypto Credential + XRPL (RLUSD / XRP) X402 SDK Playground
+            </div>
+          </div>
+          <p style="color: var(--muted); font-size: 0.84rem;">
+            Live interactive playground demonstrating how a bank, PSP, or merchant uses <code>@agility/sdk</code> to
+            require a <strong>Midnight Zero-Knowledge KYC Proof</strong> (attested by Mastercard Crypto Credential)
+            before settling an <strong>RLUSD</strong> or <strong>XRP</strong> HTTP 402 payment on the XRP Ledger.
+          </p>
+          <div class="field-row">
+            <label>
+              KYC Credential Authority (<code>kycAuthorityId</code>)
+              <select id="sdkAuthority">
+                <option value="mastercard-crypto-credential" selected>mastercard-crypto-credential (Mastercard MTN / Crypto Credential)</option>
+                <option value="shadowlabz-kyc-authority">shadowlabz-kyc-authority (ShadowLabz DAO Authority)</option>
+                <option value="ripple-institutional-kyc">ripple-institutional-kyc (Institutional VASP Authority)</option>
+              </select>
+            </label>
+            <label>
+              Settlement Asset (<code>defaultAsset</code>)
+              <select id="sdkAsset">
+                <option value="RLUSD" selected>RLUSD (Ripple USD Stablecoin on XRPL)</option>
+                <option value="XRP">XRP (Native Drops Settlement)</option>
+              </select>
+            </label>
+          </div>
+          <div class="field-row">
+            <label>
+              Customer / Agent XRPL Wallet
+              <input id="sdkXrplAddr" value="rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe" />
+            </label>
+            <label>
+              Payment Amount (USD)
+              <input id="sdkAmountUsd" type="number" value="250" />
+            </label>
+          </div>
+          <div class="field-row">
+            <label>
+              Customer KYC Tier (Endpoint requires Tier &ge; 2)
+              <select id="sdkTier">
+                <option value="2" selected>Tier 2 — Verified Commercial / Agent</option>
+                <option value="3">Tier 3 — Institutional / Corporate Audit</option>
+                <option value="1">Tier 1 — Basic Retail (Will fail Tier &ge; 2 check)</option>
+              </select>
+            </label>
+            <label>
+              Jurisdiction &amp; Sanctions Simulation
+              <select id="sdkSanctionSim">
+                <option value="clean" selected>Compliant (USA 840 · OFAC Clear)</option>
+                <option value="sanctioned">Simulate OFAC Sanctioned Entity (Blocked in ZK)</option>
+                <option value="restricted_jur">Simulate Restricted Jurisdiction 408 (Blocked in ZK)</option>
+              </select>
+            </label>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="emerald" onclick="runSdkPlayground(false)">Run Compliant Checkout (@agility/sdk)</button>
+            <button class="danger" style="padding:9px 14px;font-size:0.84rem;" onclick="runSdkPlayground(true)">Simulate Sanctions / Compliance Block (403)</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <span class="tag">10-Line Developer Experience</span>
+              Merchant Integration Code &amp; Live SDK Output
+            </div>
+          </div>
+          <pre style="max-height:175px; color:#c4b5fd;">import { AgilitySDK } from "@agility/sdk";
+
+const agility = new AgilitySDK({
+  xrplNetwork: "xrpl:0",                         // XRPL Mainnet
+  merchantXrplAddress: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+  kycAuthorityId: "mastercard-crypto-credential", // Pluggable KYC Authority
+  defaultAsset: "RLUSD",                         // RLUSD or XRP
+});
+
+// 1-Line Zero-Knowledge Compliance + X402 Settlement Builder:
+const kyc = agility.kyc.proveCompliance(customerInput, { minKycTier: 2 });
+const tx  = agility.settlement.buildCompliantPaymentTx({ ... });</pre>
+          <pre id="sdkOutput">// Click "Run Compliant Checkout (@agility/sdk)" to inspect the Midnight ZK proof &amp; RLUSD/XRP transaction...</pre>
+        </section>
+      </div>
+    </div>
   </main>
 
   <script>
     function switchTab(section, btn) {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      const sections = ['kyc', 'daos', 'ledger', 'settings'];
+      const sections = ['sdk', 'kyc', 'daos', 'ledger', 'settings'];
       sections.forEach(s => {
         const el = document.getElementById('sec-' + s);
         if (section === 'all' || section === s) {
@@ -934,6 +1025,39 @@ export function renderShadowLabzAdminHtml(): string {
         currentTally: { aye: 14, nay: 2, abstain: 0 },
         perVoterRecordsPurgedAfterFinalize: true
       }, null, 2);
+    }
+
+    async function runSdkPlayground(forceSanctioned) {
+      const kycAuthorityId = document.getElementById('sdkAuthority').value;
+      const asset = document.getElementById('sdkAsset').value;
+      const payerXrplAddress = document.getElementById('sdkXrplAddr').value;
+      const amountUsd = Number(document.getElementById('sdkAmountUsd').value || 250);
+      const tier = Number(document.getElementById('sdkTier').value);
+      const simMode = forceSanctioned ? 'sanctioned' : document.getElementById('sdkSanctionSim').value;
+
+      const isSanctioned = simMode === 'sanctioned';
+      const jurisdictionCode = simMode === 'restricted_jur' ? 408 : 840;
+
+      const res = await fetch('/api/sdk/playground', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kycAuthorityId,
+          payerXrplAddress,
+          userSecret: 'mastercard-swell-demo-secret',
+          tier,
+          jurisdictionCode,
+          isSanctioned,
+          amountUsd,
+          asset,
+          acquirerFeePercent: 2
+        })
+      });
+      const data = await res.json();
+      document.getElementById('sdkOutput').textContent =
+        'HTTP Status: ' + res.status + (res.status === 200 ? ' OK (Compliant)' : ' Forbidden (Blocked by Midnight ZK Circuit)') + '\\n\\n' +
+        (data.walletCeremonyPreview ? data.walletCeremonyPreview + '\\n\\n' : '') +
+        JSON.stringify(data, null, 2);
     }
 
     updateAdminSplitPreview();

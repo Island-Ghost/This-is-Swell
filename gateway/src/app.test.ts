@@ -199,4 +199,47 @@ describe("ShadowLabz AgilityCore Payment & KYC Gateway", () => {
     const overview = (await overviewRes.json()) as any;
     expect(overview.daos.some((d: any) => d.id === "agility-governance-dao")).toBe(true);
   });
+
+  it("executes the @agility/sdk Mastercard Crypto Credential + RLUSD/XRP X402 playground and blocks sanctioned actors", async () => {
+    // 1. Compliant Tier 2 RLUSD settlement
+    const okRes = await app.request("/api/sdk/playground", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kycAuthorityId: "mastercard-crypto-credential",
+        payerXrplAddress: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe",
+        userSecret: "mastercard-verified-customer-seed",
+        tier: 2,
+        jurisdictionCode: 840,
+        isSanctioned: false,
+        amountUsd: 250,
+        asset: "RLUSD",
+        acquirerFeePercent: 2,
+      }),
+    });
+    expect(okRes.status).toBe(200);
+    const okBody = (await okRes.json()) as any;
+    expect(okBody.status).toBe("ready_for_settlement");
+    expect(okBody.attestation.issuerAuthority).toBe("mastercard-crypto-credential");
+    expect(okBody.unsignedXrplTx.Amount.value).toBe("250.00");
+
+    // 2. Sanctioned entity is blocked inside the Midnight ZK KYC module (403)
+    const blockedRes = await app.request("/api/sdk/playground", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kycAuthorityId: "mastercard-crypto-credential",
+        payerXrplAddress: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe",
+        userSecret: "sanctioned-actor-seed",
+        tier: 2,
+        jurisdictionCode: 840,
+        isSanctioned: true,
+        amountUsd: 250,
+        asset: "RLUSD",
+      }),
+    });
+    expect(blockedRes.status).toBe(403);
+    const blockedBody = (await blockedRes.json()) as any;
+    expect(blockedBody.status).toBe("blocked_by_zk_compliance");
+  });
 });
