@@ -18,6 +18,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@mastercard/developers-agent-toolkit": "^0.1.6",
     "@swell/shared": "*",
     "contracts": "*",
     "xrpl": "^4.2.0"

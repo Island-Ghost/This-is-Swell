@@ -787,6 +787,7 @@ app.post("/api/sdk/playground", async (c) => {
     jurisdictionCode: number;
     isSanctioned: boolean;
     amountUsd: number;
+    maxAgentBudgetUsd?: number;
     asset: "RLUSD" | "XRP";
     acquirerFeePercent?: number;
   }>();
@@ -799,6 +800,7 @@ app.post("/api/sdk/playground", async (c) => {
     sourceTag: adminConfig.sourceTag,
   });
 
+  // 1. Verify Mastercard Crypto Credential ZK KYC (ShadowLabzKyc.compact)
   const attestation = sdk.kyc.proveCompliance(
     {
       userSecret: body.userSecret,
@@ -823,9 +825,34 @@ app.post("/api/sdk/playground", async (c) => {
     );
   }
 
+  // 2. Verify Mastercard Agent Pay for Machines (AP4M) ZK Permissioning & Verifiable Intent (AgilityAgentPay.compact)
+  const ap4mIntent = sdk.agentPay.verifyVerifiableIntent({
+    ownerSecret: body.userSecret,
+    agentTokenSecret: `mc-agentic-token-${body.userSecret}`,
+    x402ServiceId: "swell-enterprise-settlement",
+    requestedAmountUsd: body.amountUsd,
+    maxBudgetPerTxUsd: body.maxAgentBudgetUsd ?? 500,
+    requestedCategoryCode: 5411,
+    allowedCategoryCode: 5411,
+    isAgentActive: true,
+  });
+
+  if (!ap4mIntent.authorized || !ap4mIntent.intentNullifierHex) {
+    return c.json(
+      {
+        status: "blocked_by_ap4m_intent_policy",
+        sdkModule: "agility.agentPay.verifyVerifiableIntent()",
+        attestation,
+        ap4mIntent,
+      },
+      403,
+    );
+  }
+
+  // 3. Build x402 Payment Requirements & Compliant RLUSD / XRP Settlement Transaction
   const paymentRequired = sdk.x402.buildPaymentRequired({
     serviceId: "swell-enterprise-settlement",
-    description: "Mastercard Crypto Credential + XRPL X402 Compliant Settlement",
+    description: "Mastercard Agent Pay for Machines (AP4M) + Crypto Credential XRPL X402 Settlement",
     amountUsd: body.amountUsd,
     asset: body.asset,
     minKycTier: 2,
@@ -836,7 +863,8 @@ app.post("/api/sdk/playground", async (c) => {
     amountUsd: body.amountUsd,
     asset: body.asset,
     kycNullifierHex: attestation.kycNullifierHex,
-    action: "mastercard_swell_x402_settlement",
+    agentIntentNullifierHex: ap4mIntent.intentNullifierHex,
+    action: "mastercard_ap4m_x402_settlement",
   });
 
   const totalDrops = usdToXrpDrops(body.amountUsd);
@@ -847,8 +875,16 @@ app.post("/api/sdk/playground", async (c) => {
 
   return c.json({
     status: "ready_for_settlement",
-    sdkModulesUsed: ["agility.kyc", "agility.x402", "agility.settlement"],
+    sdkModulesUsed: [
+      "agility.kyc",
+      "agility.agentPay",
+      "agility.mastercardToolkit",
+      "agility.x402",
+      "agility.settlement",
+    ],
+    mastercardToolkit: sdk.mastercardToolkit.getToolkitInfo(),
     attestation,
+    ap4mIntent,
     paymentRequired,
     unsignedXrplTx: tx,
     walletCeremonyPreview: formatXrplTransactionPreview(tx, "testnet"),

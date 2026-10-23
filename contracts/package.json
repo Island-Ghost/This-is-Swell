@@ -34,11 +34,15 @@
     "./shadowlabz-reputation": {
       "types": "./dist/managed/shadowLabzReputation/contract/index.d.ts",
       "import": "./dist/managed/shadowLabzReputation/contract/index.js"
+    },
+    "./agility-agent-pay": {
+      "types": "./dist/managed/agilityAgentPay/contract/index.d.ts",
+      "import": "./dist/managed/agilityAgentPay/contract/index.js"
     }
   },
   "scripts": {
-    "compile": "compact compile src/m402Vault.compact src/managed/m402Vault && compact compile src/AgilityPayment.compact src/managed/agilityPayment && compact compile src/AgilityEscrow.compact src/managed/agilityEscrow && compact compile src/ShadowLabzKyc.compact src/managed/shadowLabzKyc && compact compile src/ShadowLabzSubscription.compact src/managed/shadowLabzSubscription && compact compile src/ShadowLabzReputation.compact src/managed/shadowLabzReputation",
-    "compile:skip-zk": "compact compile --skip-zk src/m402Vault.compact src/managed/m402Vault && compact compile --skip-zk src/AgilityPayment.compact src/managed/agilityPayment && compact compile --skip-zk src/AgilityEscrow.compact src/managed/agilityEscrow && compact compile --skip-zk src/ShadowLabzKyc.compact src/managed/shadowLabzKyc && compact compile --skip-zk src/ShadowLabzSubscription.compact src/managed/shadowLabzSubscription && compact compile --skip-zk src/ShadowLabzReputation.compact src/managed/shadowLabzReputation",
+    "compile": "compact compile src/m402Vault.compact src/managed/m402Vault && compact compile src/AgilityPayment.compact src/managed/agilityPayment && compact compile src/AgilityEscrow.compact src/managed/agilityEscrow && compact compile src/ShadowLabzKyc.compact src/managed/shadowLabzKyc && compact compile src/ShadowLabzSubscription.compact src/managed/shadowLabzSubscription && compact compile src/ShadowLabzReputation.compact src/managed/shadowLabzReputation && compact compile src/AgilityAgentPay.compact src/managed/agilityAgentPay",
+    "compile:skip-zk": "compact compile --skip-zk src/m402Vault.compact src/managed/m402Vault && compact compile --skip-zk src/AgilityPayment.compact src/managed/agilityPayment && compact compile --skip-zk src/AgilityEscrow.compact src/managed/agilityEscrow && compact compile --skip-zk src/ShadowLabzKyc.compact src/managed/shadowLabzKyc && compact compile --skip-zk src/ShadowLabzSubscription.compact src/managed/shadowLabzSubscription && compact compile --skip-zk src/ShadowLabzReputation.compact src/managed/shadowLabzReputation && compact compile --skip-zk src/AgilityAgentPay.compact src/managed/agilityAgentPay",
     "build": "tsc && cp -R src/managed dist/",
     "typecheck": "tsc --noEmit"
   },

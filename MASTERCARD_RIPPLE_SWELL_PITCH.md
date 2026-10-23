@@ -1,88 +1,93 @@
 # Pitching `@agility/sdk` to Mastercard at Ripple Swell
 
-**Presenter Guide: Positioning AgilityCore as the Zero-Knowledge Compliance & Agentic Settlement SDK for XRPL (RLUSD / XRP) and Midnight Network.**
+**Presenter Guide: Bringing Zero-Knowledge Privacy (Midnight Network) & 3–5s RLUSD/XRP Settlement (`x402-xrpl`) to Mastercard Agent Pay for Machines (AP4M) and `@mastercard/developers-agent-toolkit`.**
 
 ---
 
-## 1. The 60-Second Elevator Pitch (For Mastercard Executives at Ripple Swell)
+## 1. The Ultimate Hook: We Built Directly on Mastercard's Newest AI & x402 Stack
 
-> *"Hi, I'm Stephanie. We started Agility at Ripple's inaugural Real-Life Use Cases Hackathon in 2022 — building both the software and hardware to let merchants accept XRPL payments as easily as a card swipe.*
+Mastercard recently launched three major developer and agentic commerce products:
+1. **Mastercard Agent Pay for Machines (AP4M)** *(launched June 2026)* — Built directly on the open **`x402`** protocol with 4 pillars: **Credentialing ("Know Your Agent" + Agentic Tokens)**, **Permissioning (on-chain spending limits & Verifiable Intent)**, **Transacting (`x402`)**, and **Multi-Rail Settlement (Cards, Accounts, and Stablecoins)**.
+2. **Mastercard Developers Agent Toolkit (`@mastercard/developers-agent-toolkit` & `@mastercard/developers-mcp`)** — Mastercard's official Model Context Protocol (MCP) server (`https://developer.mcp.mastercard.com`) and `mastercard-best-practices` skill for AI agents.
+3. **Mastercard Crypto Credential** — Institutional KYC and compliance attestation across blockchains.
+
+### The Crucial Gap We Solve for Mastercard at Ripple Swell
+When Mastercard announced **Agent Pay for Machines (AP4M)** in June 2026, they noted that human-granted agent permissions and budgets are logged on blockchains (initially Polygon, Solana, and Base) so counterparties can verify an agent is acting within its rules.
+- **Problem #1 (Corporate Privacy Leak on Transparent Chains):** Logging an enterprise's AI agent permissions, budgets, and vendor categories onto a *transparent* blockchain lets every competitor see how much that company's AI agents are allowed to spend and which APIs/suppliers they are buying from!
+- **Problem #2 (Missing XRPL + RLUSD Settlement Rail):** AP4M needs 3–5 second deterministic finality in **RLUSD** and **XRP** on the **XRP Ledger (`x402-xrpl`)** with zero-PII **Mastercard Crypto Credential** verification.
+
+### Your 60-Second Pitch to Mastercard
+> *"We built **`@agility/sdk`** using Mastercard's own **`@mastercard/developers-agent-toolkit`** to bring **Mastercard Agent Pay for Machines (AP4M)** and **Crypto Credential** to the **XRP Ledger** and **Midnight Network**.*
 >
-> *What we discovered talking to businesses and enterprises is the exact problem Mastercard is solving with **Crypto Credential** and **Agent Pay**: **institutions want XRPL's 3-second settlement in RLUSD and XRP, and AI agents need HTTP 402 (`x402-xrpl`) to pay for APIs autonomously — but regulated institutions cannot put customer PII on a public blockchain, and they cannot touch unverified wallets.***
+> *Mastercard AP4M is already built on **x402** and logs agent permissions on-chain. But if an enterprise logs its AI agent budgets and KYC status on a transparent chain, competitors can read its entire AI spending strategy.*
 >
-> *So we built **`@agility/sdk`**. It combines **Midnight Network's Zero-Knowledge KYC** with **XRPL X402 and RLUSD/XRP settlement**. Using our SDK, an authority like **Mastercard Crypto Credential** attests to a user's or AI agent's KYC tier once. Then, on every XRPL payment, our SDK attaches a zero-knowledge compliance proof (`X-Midnight-Kyc`) that proves the payer passed KYC, OFAC sanctions screening, and jurisdiction checks — **while putting zero PII on-chain**. It is already live and powering confidential DAO governance and 3-way revenue splits for **ShadowLabz**."*
+> *With **`@agility/sdk`** and our **`AgilityAgentPay.compact`** contract on Midnight, we make all four pillars of Mastercard Agent Pay for Machines **Zero-Knowledge and XRPL-Native**:*
+> 1. ***Know Your Agent (Credentialing):*** *Binds a Mastercard Agentic Token to a Midnight ZK KYC commitment (`ShadowLabzKyc.compact`).*
+> 2. ***Zero-Knowledge Permissioning & Verifiable Intent:*** *Proves an AI agent's `x402` request is within its human-approved spending cap and category **without revealing the company's total budget on-chain**.*
+> 3. ***3–5s Settlement on XRPL (`RLUSD` & `XRP`):*** *Settles over `x402-xrpl` with atomic network/acquirer/merchant fee splitting, or completely anonymously via Midnight `m402` shielded credits."*
 
 ---
 
-## 2. How `@agility/sdk` Aligns with Mastercard's 3 Core Initiatives
+## 2. How `@agility/sdk` Integrates Every Mastercard Tool You Shared
 
-| Mastercard Initiative | The Gap Today on Public Ledgers | How `@agility/sdk` Solves It |
+| Mastercard Tool / Product | Integrated In This Repo | What It Does Live in `@agility/sdk` |
 | :--- | :--- | :--- |
-| **1. Mastercard Crypto Credential** | Verifying user/wallet compliance across chains without leaking PII or creating GDPR/CCPA liability on public explorers. | `ShadowLabzKyc.compact` stores only a blinded `persistentCommit<KycCredential>` hash on Midnight. `agility.kyc.proveCompliance()` discloses **only a 1-bit boolean (`true`/`false`)** and a context-scoped nullifier (`X-Midnight-Kyc`) bound to the user's XRPL address. |
-| **2. RLUSD & Stablecoin Merchant Settlement** | Merchants and PSPs need automatic fee splitting (Network Fee / Acquirer Fee / Merchant Settlement) and conditional escrow without custom smart contract risk. | `agility.settlement` calculates exact basis-point splits (`500 bps` network / acquirer bps / merchant bps) with zero drop rounding loss and builds native XRPL `Payment` (in **RLUSD** or **XRP**) and `EscrowCreate` transactions. |
-| **3. Mastercard "Agent Pay" (Agentic Commerce)** | AI agents need to pay for APIs and commerce over HTTP (`402 Payment Required`), but enterprises need proof that an AI agent is backed by a KYC-verified, non-sanctioned company and bounded by spending policies. | `agility.x402` + **Open Wallet Standard (`OWS`)** + `agility.m402`: Every HTTP 402 request carries `X-Midnight-Kyc` (proving the agent's corporate KYC tier) and settles either deterministically on XRPL (`x402-xrpl`) or with complete B2B sender unlinkability via Midnight shielded credits (`m402Vault.compact`). |
+| **`@mastercard/developers-agent-toolkit`** (`v0.1.6`) | `sdk/src/index.ts` (`agility.mastercardToolkit`) + `.devin/mcp_config.json` (`https://developer.mcp.mastercard.com`) + `.devin/skills/mastercard-best-practices/SKILL.md` | Embeds Mastercard's official MCP server and 9 API discovery/OAuth/Open Finance tools directly into the SDK and agent workspace. |
+| **Mastercard Agent Pay for Machines (AP4M)** | `contracts/src/AgilityAgentPay.compact` + `agility.agentPay` (`sdk/src/index.ts`) + `.devin/skills/mastercard-agent-pay/SKILL.md` | Implements AP4M's **Know Your Agent (KYA)**, **Agentic Tokens**, and **Verifiable Intent / Spending Limits** in Zero Knowledge on Midnight (`X-Mastercard-Agent-Intent`). |
+| **Mastercard Crypto Credential** | `contracts/src/ShadowLabzKyc.compact` + `agility.kyc` (`sdk/src/index.ts`) | Acts as the `kycAuthority` issuing blinded `persistentCommit` KYC credentials (`X-Midnight-Kyc`) with zero PII on-chain. |
+| **XRPL X402 + RLUSD / XRP Settlement** | `agility.x402` + `agility.settlement` + `xrpl_x402/shadowlabz_merchant.py` | Settles AP4M `x402` transactions in **RLUSD** or **XRP** on the XRP Ledger with automatic 5% network / acquirer / merchant fee splits. |
 
 ---
 
-## 3. End-to-End Architecture Diagram
+## 3. End-to-End Architecture: Mastercard AP4M + Midnight ZK + XRPL X402
 
 ```mermaid
 flowchart LR
-    subgraph MC["1. Credential Authority"]
-        issuer["Mastercard Crypto Credential<br/>or Regulated KYC Issuer"]
+    subgraph MC["1. Mastercard AI & Identity"]
+        mcp["@mastercard/developers-agent-toolkit<br/>MCP Service & API Discovery"]
+        kya["Mastercard Crypto Credential<br/>+ Agentic Token (KYA)"]
     end
 
-    subgraph MN["2. Midnight Network (ZK Compliance)"]
-        kyc["ShadowLabzKyc.compact<br/>persistentCommit + HistoricMerkleTree"]
+    subgraph MN["2. Midnight Network (Compact 0.31.1)"]
+        kyc["ShadowLabzKyc.compact<br/>Zero-PII KYC Proof (X-Midnight-Kyc)"]
+        ap4m["AgilityAgentPay.compact<br/>ZK Budget & Verifiable Intent<br/>(X-Mastercard-Agent-Intent)"]
         m402["m402Vault.compact<br/>Shielded B2B Credits"]
     end
 
-    subgraph SDK["3. @agility/sdk (AgilityCore Gateway)"]
-        gate["HTTP 402 + X-Midnight-Kyc Verifier<br/>agility.kyc · agility.x402 · agility.settlement"]
+    subgraph SDK["3. @agility/sdk (AgilityCore)"]
+        gate["x402 + AP4M Compliance Gate<br/>Verifies KYA + ZK Budget + KYC"]
     end
 
-    subgraph XRPL["4. XRP Ledger (3-5s Finality)"]
-        rlusd["RLUSD / XRP Settlement<br/>SourceTag 20260601 + KYC Nullifier Memo"]
-        split["Atomic 3-Way Fee Split<br/>Network % · Acquirer % · Merchant %"]
-        escrow["Native EscrowCreate<br/>Time-Locked & Conditional"]
+    subgraph XRPL["4. XRP Ledger (3-5s Settlement)"]
+        rlusd["RLUSD & XRP Settlement<br/>SourceTag 20260601 + AP4M Memo"]
+        split["Atomic 3-Way Split<br/>Network % · Acquirer % · Merchant %"]
     end
 
-    issuer -->|"Issues Blinded KYC Commitment"| kyc
-    kyc -->|"1-Bit ZK Proof + X-Midnight-Kyc Nullifier"| gate
-    m402 -->|"Private B2B 402 Receipt"| gate
-    gate -->|"Verified 402 Settlement"| rlusd
+    mcp --> gate
+    kya --> kyc
+    kya --> ap4m
+    kyc --> gate
+    ap4m --> gate
+    m402 --> gate
+    gate --> rlusd
     rlusd --> split
-    rlusd --> escrow
 ```
 
 ---
 
-## 4. 90-Second Live Demo Script (Using Your Admin Control Room at `http://127.0.0.1:8787`)
+## 4. 90-Second Live Demo Walkthrough for Mastercard at Ripple Swell
 
-You can run this entire live demo from your laptop or tablet in the **Admin Control Room** (`http://127.0.0.1:8787/admin`):
+Open your **Admin Control Room** (`http://127.0.0.1:8787/admin`) and click the **`@agility/sdk · Mastercard Swell Demo`** tab:
 
-1. **Click the `@agility/sdk · Mastercard Swell Demo` tab in the top navigation bar:**
-   - Point out the **10-line `@agility/sdk` initialization snippet** configured with `kycAuthorityId: "mastercard-crypto-credential"` and `defaultAsset: "RLUSD"`.
-2. **Run Scenario A — Compliant RLUSD / XRP Checkout (`Tier 2 · USA · OFAC Clear`):**
-   - Click **"Run Compliant Checkout (`@agility/sdk`)"**.
-   - Show the output:
-     - Midnight `ShadowLabzKyc.compact` verifies the credential commitment and outputs the `X-Midnight-Kyc` nullifier + XRPL wallet binding hash (`zero PII exposed`).
-     - `@agility/sdk` constructs the **RLUSD** (and **XRP**) XRPL `Payment` transaction stamped with `SourceTag: 20260601` and the hex-encoded `agility/zk-kyc-x402` memo, plus the 3-way split breakdown.
-3. **Run Scenario B — Blocked Sanctions / Insufficient KYC Tier Attempt:**
-   - Toggle **"Simulate Sanctioned / Restricted Jurisdiction"** and click test.
-   - Show that the Midnight ZK circuit immediately rejects the proof (`403 Forbidden — Blocked by OFAC / Sanctions screening inside Midnight ZK circuit`) **before** any XRPL transaction or 402 payment can occur.
-4. **Show the Live Production Integration (`ShadowLabz`):**
-   - Switch to the **DAOs, Splits & Escrows** and **X402 Revenue Ledger** tabs to show how ShadowLabz uses this exact SDK for DAO subscriptions, 3-way revenue splits, and 2-week crowdfunding escrows.
-
----
-
-## 5. Anticipated Questions from Mastercard (and Your Answers)
-
-### Q1: *"How does this work with Mastercard Crypto Credential?"*
-- **Answer:** "Mastercard Crypto Credential already verifies user and VASP compliance off-chain. With `@agility/sdk`, Mastercard acts as the `kycAuthority` on our Midnight contract (`ShadowLabzKyc.compact`). When Mastercard verifies a user, you write a 32-byte blinded commitment (`persistentCommit`) to Midnight. From that point on, the user or their AI agent can prove to any XRPL merchant or X402 API that they hold a valid Mastercard Crypto Credential at Tier 1, 2, or 3 — without Mastercard or the user ever exposing raw PII on the XRP Ledger."
-
-### Q2: *"What happens if a user later fails sanctions screening or their credential is revoked?"*
-- **Answer:** "`ShadowLabzKyc.compact` maintains an on-chain `revokedUsers: Set<Bytes<32>>` ledger controlled by the `kycAuthority`. The moment an authority calls `revokeKycUser(userPkHash)`, both `verifySelectiveKycForXrpPayment` and the `@agility/sdk` 402 gateway reject any future proof from that user in real time — as shown in our Admin Control Room."
-
-### Q3: *"Why use both Midnight and XRPL instead of just one chain?"*
-- **Answer:** "Each chain does what it was purpose-built for: **XRPL** provides 3–5 second deterministic finality, deep liquidity, native `RLUSD` stablecoin settlement, native `EscrowCreate`, and T54's `x402-xrpl` facilitator ecosystem. **Midnight** provides programmable zero-knowledge data protection (`Compact`) and shielded credits (`m402`). `@agility/sdk` abstracts both behind one clean TypeScript/Python interface so developers don't have to be cryptographers to build compliant payments."
+1. **Show Official Mastercard Toolkit Integration:**
+   - Point out that `@mastercard/developers-agent-toolkit` (`v0.1.6`) and the Mastercard Developers MCP server (`https://developer.mcp.mastercard.com`) are installed and active inside `@agility/sdk`.
+2. **Test 1 — Compliant AP4M Agent Payment (`RLUSD` on XRPL):**
+   - Agent Requested Spend: **$250 RLUSD** | Human-Approved Private Cap: **$500 RLUSD** | KYC Tier: **Tier 2** | Authority: **`mastercard-crypto-credential`**.
+   - Click **"Run Compliant AP4M + X402 Checkout"**:
+     - Shows `X-Midnight-Kyc` (Zero-Knowledge KYC nullifier) AND `X-Mastercard-Agent-Intent` (AP4M Verifiable Intent nullifier proving `$250 <= $500` **with `budgetHiddenInZeroKnowledge: true`**).
+     - Outputs the ready-to-sign **RLUSD** XRPL `Payment` transaction with the `agility/mc-ap4m-x402` memo and 3-way split.
+3. **Test 2 — Block an AI Agent Exceeding Its Human-Granted Budget (`AP4M Permissioning`):**
+   - Click **"Simulate AP4M Budget Overrun (403)"** (e.g., Agent tries to spend **$750** when its private cap is **$500**).
+   - Shows `AgilityAgentPay.compact` immediately rejecting the transaction (`403 Forbidden — AP4M Permissioning rejected in Midnight ZK circuit`) **without revealing the $500 cap to the merchant or the public blockchain!**
+4. **Test 3 — Block a Sanctioned Entity (`Mastercard Crypto Credential`):**
+   - Click **"Simulate OFAC / Sanctions Block (403)"** to show `ShadowLabzKyc.compact` stopping the transaction before it ever reaches XRPL.

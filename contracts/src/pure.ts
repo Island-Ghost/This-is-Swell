@@ -37,3 +37,10 @@ export {
   ledger as reputationLedger,
   type Ledger as ReputationLedger,
 } from "./managed/shadowLabzReputation/contract/index.js";
+
+export {
+  pureCircuits as agentPayPureCircuits,
+  ledger as agentPayLedger,
+  type Ledger as AgentPayLedger,
+  type AgentPolicy,
+} from "./managed/agilityAgentPay/contract/index.js";

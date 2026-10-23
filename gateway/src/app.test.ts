@@ -221,9 +221,32 @@ describe("ShadowLabz AgilityCore Payment & KYC Gateway", () => {
     const okBody = (await okRes.json()) as any;
     expect(okBody.status).toBe("ready_for_settlement");
     expect(okBody.attestation.issuerAuthority).toBe("mastercard-crypto-credential");
+    expect(okBody.ap4mIntent.authorized).toBe(true);
+    expect(okBody.ap4mIntent.budgetHiddenInZeroKnowledge).toBe(true);
+    expect(okBody.mastercardToolkit.package).toBe("@mastercard/developers-agent-toolkit");
     expect(okBody.unsignedXrplTx.Amount.value).toBe("250.00");
 
-    // 2. Sanctioned entity is blocked inside the Midnight ZK KYC module (403)
+    // 2. Agent exceeding its private AP4M spending cap is blocked in Zero Knowledge (403)
+    const overrunRes = await app.request("/api/sdk/playground", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kycAuthorityId: "mastercard-crypto-credential",
+        payerXrplAddress: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe",
+        userSecret: "mastercard-verified-customer-seed",
+        tier: 2,
+        jurisdictionCode: 840,
+        isSanctioned: false,
+        amountUsd: 750,
+        maxAgentBudgetUsd: 500,
+        asset: "RLUSD",
+      }),
+    });
+    expect(overrunRes.status).toBe(403);
+    const overrunBody = (await overrunRes.json()) as any;
+    expect(overrunBody.status).toBe("blocked_by_ap4m_intent_policy");
+
+    // 3. Sanctioned entity is blocked inside the Midnight ZK KYC module (403)
     const blockedRes = await app.request("/api/sdk/playground", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

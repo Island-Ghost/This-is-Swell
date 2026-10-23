@@ -1,0 +1,121 @@
+// AgilityAgentPay.compact
+// Built with Midnight Network Compact 0.31.1 (pragma language_version 0.23)
+// Implements Zero-Knowledge Credentialing ("Know Your Agent" / Agentic Tokens) and
+// Zero-Knowledge Permissioning ("Verifiable Intent" & Spending Caps) for
+// Mastercard Agent Pay for Machines (AP4M) over HTTP 402 (x402-xrpl & m402).
+//
+// Why Midnight for AP4M?
+// Logging AI agent permissions and budgets on transparent chains (Base/Polygon/Solana)
+// exposes an enterprise's AI spending limits, vendor categories, and treasury strategy.
+// AgilityAgentPay commits the policy with `persistentCommit` and proves compliance
+// in zero knowledge — disclosing ONLY a boolean verdict and a one-time intent nullifier.
+
+pragma language_version 0.23;
+
+import CompactStandardLibrary;
+
+export struct AgentPolicy {
+  agentIdHash: Bytes<32>;
+  ownerKycPkHash: Bytes<32>;
+  xrplSettlementHash: Bytes<32>;
+  maxSpendPerTxDrops: Uint<64>;
+  allowedCategoryCode: Uint<16>;
+  isActive: Boolean;
+}
+
+export ledger registeredAgentCount: Counter;
+export ledger verifiedIntentCount: Counter;
+export ledger agentPolicyCommitments: Map<Bytes<32>, Bytes<32>>;
+export ledger revokedAgents: Set<Bytes<32>>;
+export ledger executedIntentNullifiers: Set<Bytes<32>>;
+
+witness ownerSecretKey(): Bytes<32>;
+witness agentSecretToken(): Bytes<32>;
+witness getAgentPolicy(): AgentPolicy;
+witness getPolicySalt(): Bytes<32>;
+
+export pure circuit deriveAgentIdHash(
+  ownerPkHash: Bytes<32>,
+  agentToken: Bytes<32>
+): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "mc:ap4m:agent:id:v1"),
+    ownerPkHash,
+    agentToken
+  ]);
+}
+
+export pure circuit deriveVerifiableIntentNullifier(
+  agentToken: Bytes<32>,
+  x402ServiceId: Bytes<32>,
+  amountDrops: Uint<64>
+): Bytes<32> {
+  return persistentHash<Vector<4, Bytes<32>>>([
+    pad(32, "mc:ap4m:intent:nul:v1"),
+    agentToken,
+    x402ServiceId,
+    amountDrops as Bytes<32>
+  ]);
+}
+
+// Pillar 1: "Know Your Agent" (KYA) — Register an AI agent with a blinded policy commitment
+export circuit registerAgentCredential(
+  agentIdHash: Bytes<32>,
+  policyCommitment: Bytes<32>
+): [] {
+  const aid = disclose(agentIdHash);
+  assert(!revokedAgents.member(aid), "Agent credential is revoked");
+
+  agentPolicyCommitments.insert(aid, disclose(policyCommitment));
+  registeredAgentCount.increment(1);
+}
+
+// Revoke an AI agent's Mastercard Agentic Token / permission immediately
+export circuit revokeAgentCredential(agentIdHash: Bytes<32>): [] {
+  revokedAgents.insert(disclose(agentIdHash));
+}
+
+// Pillar 2: "Verifiable Intent" & Zero-Knowledge Permissioning
+// Proves the AI agent is registered, active, within its per-transaction spending cap,
+// and calling an authorized service category — without revealing the enterprise's budget!
+export circuit verifyAgentIntentForX402(
+  x402ServiceId: Bytes<32>,
+  requestedAmountDrops: Uint<64>,
+  requestedCategoryCode: Uint<16>
+): Bytes<32> {
+  assert(requestedAmountDrops > 0, "Payment amount must be positive");
+
+  const ownerPkHash = persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "shadowlabz:kyc:pk:v1"),
+    ownerSecretKey()
+  ]);
+  const token = agentSecretToken();
+  const aid = disclose(deriveAgentIdHash(ownerPkHash, token));
+
+  assert(agentPolicyCommitments.member(aid), "Unregistered AI agent (Know Your Agent check failed)");
+  assert(!revokedAgents.member(aid), "AI agent credential has been revoked");
+
+  const policy = getAgentPolicy();
+  const salt = getPolicySalt();
+  const expectedCommitment = persistentCommit<AgentPolicy>(policy, salt);
+  const storedCommitment = agentPolicyCommitments.lookup(aid);
+  assert(disclose(expectedCommitment == storedCommitment), "Invalid agent policy commitment");
+
+  const authorized =
+    policy.isActive &&
+    policy.agentIdHash == aid &&
+    policy.ownerKycPkHash == ownerPkHash &&
+    requestedAmountDrops <= policy.maxSpendPerTxDrops &&
+    requestedCategoryCode == policy.allowedCategoryCode;
+
+  assert(disclose(authorized), "Agent transaction exceeds spending limit or violates Verifiable Intent policy");
+
+  const intentNullifier = disclose(
+    deriveVerifiableIntentNullifier(token, disclose(x402ServiceId), disclose(requestedAmountDrops))
+  );
+  assert(!executedIntentNullifiers.member(intentNullifier), "Intent nullifier already consumed");
+  executedIntentNullifiers.insert(intentNullifier);
+  verifiedIntentCount.increment(1);
+
+  return intentNullifier;
+}

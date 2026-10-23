@@ -719,13 +719,13 @@ export function renderShadowLabzAdminHtml(): string {
           <div class="card-header">
             <div class="card-title">
               <span class="tag emerald">@agility/sdk · Ripple Swell Pitch</span>
-              Mastercard Crypto Credential + XRPL (RLUSD / XRP) X402 SDK Playground
+              Mastercard Agent Pay for Machines (AP4M) + Crypto Credential + XRPL X402
             </div>
           </div>
           <p style="color: var(--muted); font-size: 0.84rem;">
-            Live interactive playground demonstrating how a bank, PSP, or merchant uses <code>@agility/sdk</code> to
-            require a <strong>Midnight Zero-Knowledge KYC Proof</strong> (attested by Mastercard Crypto Credential)
-            before settling an <strong>RLUSD</strong> or <strong>XRP</strong> HTTP 402 payment on the XRP Ledger.
+            Demonstrates <strong>Mastercard Agent Pay for Machines (AP4M)</strong> + <code>@mastercard/developers-agent-toolkit</code>
+            running on <strong>Midnight Zero-Knowledge Circuits</strong> (<code>AgilityAgentPay.compact</code> &amp; <code>ShadowLabzKyc.compact</code>)
+            and settling in <strong>RLUSD</strong> or <strong>XRP</strong> over HTTP 402 on the XRP Ledger.
           </p>
           <div class="field-row">
             <label>
@@ -746,12 +746,16 @@ export function renderShadowLabzAdminHtml(): string {
           </div>
           <div class="field-row">
             <label>
-              Customer / Agent XRPL Wallet
+              AI Agent / Customer XRPL Wallet
               <input id="sdkXrplAddr" value="rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe" />
             </label>
             <label>
-              Payment Amount (USD)
+              Requested X402 Payment (USD)
               <input id="sdkAmountUsd" type="number" value="250" />
+            </label>
+            <label>
+              AP4M Private Agent Budget Cap (USD)
+              <input id="sdkMaxBudgetUsd" type="number" value="500" />
             </label>
           </div>
           <div class="field-row">
@@ -773,31 +777,35 @@ export function renderShadowLabzAdminHtml(): string {
             </label>
           </div>
           <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <button class="emerald" onclick="runSdkPlayground(false)">Run Compliant Checkout (@agility/sdk)</button>
-            <button class="danger" style="padding:9px 14px;font-size:0.84rem;" onclick="runSdkPlayground(true)">Simulate Sanctions / Compliance Block (403)</button>
+            <button class="emerald" onclick="runSdkPlayground('normal')">1. Run Compliant AP4M + X402 Checkout</button>
+            <button class="secondary" onclick="runSdkPlayground('budget_overrun')">2. Simulate AP4M Budget Overrun (403)</button>
+            <button class="danger" style="padding:9px 14px;font-size:0.84rem;" onclick="runSdkPlayground('sanctioned')">3. Simulate Sanctions Block (403)</button>
           </div>
         </section>
 
         <section class="card">
           <div class="card-header">
             <div class="card-title">
-              <span class="tag">10-Line Developer Experience</span>
-              Merchant Integration Code &amp; Live SDK Output
+              <span class="tag">@mastercard/developers-agent-toolkit + @agility/sdk</span>
+              Developer Integration Snippet &amp; Live Output
             </div>
           </div>
-          <pre style="max-height:175px; color:#c4b5fd;">import { AgilitySDK } from "@agility/sdk";
+          <pre style="max-height:185px; color:#c4b5fd;">import { AgilitySDK } from "@agility/sdk";
 
 const agility = new AgilitySDK({
   xrplNetwork: "xrpl:0",                         // XRPL Mainnet
   merchantXrplAddress: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
-  kycAuthorityId: "mastercard-crypto-credential", // Pluggable KYC Authority
+  kycAuthorityId: "mastercard-crypto-credential", // Mastercard Crypto Credential
   defaultAsset: "RLUSD",                         // RLUSD or XRP
 });
 
-// 1-Line Zero-Knowledge Compliance + X402 Settlement Builder:
-const kyc = agility.kyc.proveCompliance(customerInput, { minKycTier: 2 });
-const tx  = agility.settlement.buildCompliantPaymentTx({ ... });</pre>
-          <pre id="sdkOutput">// Click "Run Compliant Checkout (@agility/sdk)" to inspect the Midnight ZK proof &amp; RLUSD/XRP transaction...</pre>
+// 1. Know Your Agent (KYA) + Mastercard Crypto Credential ZK Proof:
+const kyc = agility.kyc.proveCompliance(agentOwnerInput, { minKycTier: 2 });
+// 2. AP4M Zero-Knowledge Permissioning &amp; Verifiable Intent (AgilityAgentPay.compact):
+const ap4m = agility.agentPay.verifyVerifiableIntent({ requestedAmountUsd: 250, maxBudgetPerTxUsd: 500, ... });
+// 3. Build XRPL X402 RLUSD/XRP Settlement with both ZK Nullifiers:
+const tx = agility.settlement.buildCompliantPaymentTx({ ... });</pre>
+          <pre id="sdkOutput">// Click "1. Run Compliant AP4M + X402 Checkout" to inspect the Midnight ZK KYC proof, AP4M Verifiable Intent nullifier, and RLUSD/XRP transaction...</pre>
         </section>
       </div>
     </div>
@@ -1027,16 +1035,18 @@ const tx  = agility.settlement.buildCompliantPaymentTx({ ... });</pre>
       }, null, 2);
     }
 
-    async function runSdkPlayground(forceSanctioned) {
+    async function runSdkPlayground(mode) {
       const kycAuthorityId = document.getElementById('sdkAuthority').value;
       const asset = document.getElementById('sdkAsset').value;
       const payerXrplAddress = document.getElementById('sdkXrplAddr').value;
-      const amountUsd = Number(document.getElementById('sdkAmountUsd').value || 250);
+      const baseAmountUsd = Number(document.getElementById('sdkAmountUsd').value || 250);
+      const maxAgentBudgetUsd = Number(document.getElementById('sdkMaxBudgetUsd').value || 500);
       const tier = Number(document.getElementById('sdkTier').value);
-      const simMode = forceSanctioned ? 'sanctioned' : document.getElementById('sdkSanctionSim').value;
+      const simMode = mode === 'sanctioned' ? 'sanctioned' : document.getElementById('sdkSanctionSim').value;
 
       const isSanctioned = simMode === 'sanctioned';
       const jurisdictionCode = simMode === 'restricted_jur' ? 408 : 840;
+      const amountUsd = mode === 'budget_overrun' ? maxAgentBudgetUsd + 250 : baseAmountUsd;
 
       const res = await fetch('/api/sdk/playground', {
         method: 'POST',
@@ -1049,13 +1059,14 @@ const tx  = agility.settlement.buildCompliantPaymentTx({ ... });</pre>
           jurisdictionCode,
           isSanctioned,
           amountUsd,
+          maxAgentBudgetUsd,
           asset,
           acquirerFeePercent: 2
         })
       });
       const data = await res.json();
       document.getElementById('sdkOutput').textContent =
-        'HTTP Status: ' + res.status + (res.status === 200 ? ' OK (Compliant)' : ' Forbidden (Blocked by Midnight ZK Circuit)') + '\\n\\n' +
+        'HTTP Status: ' + res.status + (res.status === 200 ? ' OK (Compliant AP4M + ZK KYC)' : ' Forbidden (Blocked by Midnight ZK Circuit)') + '\\n\\n' +
         (data.walletCeremonyPreview ? data.walletCeremonyPreview + '\\n\\n' : '') +
         JSON.stringify(data, null, 2);
     }
